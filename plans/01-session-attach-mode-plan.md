@@ -1,4 +1,4 @@
-# Implementation Plan: Story 07 -- Session Attach Mode
+# Implementation Plan: Story 01 -- Session Attach Mode
 
 **Date**: 2026-02-22
 **Story**: 07-session-attach-mode
@@ -15,7 +15,7 @@ This is the **daemon-side session management story**. It is the most complex sto
 - **Story 02** (Hook Integration): `gc-hook` is extended to read status files and output session state indicators to stderr.
 - **Story 03** (Storage Layer): Event store directory structure (`events/{project-id}/{session-id}/`) is the filesystem tree being watched.
 - **Story 06** (Plugin Packaging): `agentctx` CLI commands (`agent start`, `agent attach`, `agent release`, `agent list`) are added as subcommands.
-- **Story 13** (Mobile/Desktop Rendering): Consumes the WebSocket/SSE timeline events and PTY streams produced here (out of scope for this plan).
+- **Story 07** (Mobile/Desktop Rendering): Consumes the WebSocket/SSE timeline events and PTY streams produced here (out of scope for this plan).
 - **F3** (Agent Process Orchestration): `spawnManagedSession` uses the Claude SDK's `resume` capability (interface defined here, SDK integration is F3).
 - **F5** (Encrypted Sync): Cross-machine session attachment requires sync (out of scope, but interfaces are forward-compatible).
 - **F10** (Relay): Remote PTY access via E2EE relay (interface defined here, relay is F10).

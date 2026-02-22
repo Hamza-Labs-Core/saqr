@@ -1,10 +1,10 @@
-# Implementation Plan: Story 08 -- CLI Session Rendering on Mobile & Desktop
+# Implementation Plan: Story 02 -- CLI Session Rendering on Mobile & Desktop
 
 **Date**: 2026-02-22
 **Story**: 08-cli-session-rendering
 **Status**: Planning
 **Estimated Total Effort**: ~12-16 days (90-130 hours)
-**Prerequisites**: Expo/React Native project scaffolded (Story 07), GC event store operational (Stories 01-05), WebSocket sync layer functional (Story 06/09).
+**Prerequisites**: Expo/React Native project scaffolded (Story 01), GC event store operational (Stories 01-05), WebSocket sync layer functional (Story 06/09).
 **Product Spec**: F13 (CLI Session Rendering) -- all sub-features F13.1 through F13.14.
 
 ### Relationship to Other Stories
@@ -13,10 +13,10 @@ This is the **foundational UI story**. It produces the complete component librar
 
 - **Story 01** (Event Capture): GC JSONL events are the primary input to the Event Normalization Layer (Task 1)
 - **Story 06/09** (Sync/Transport): WebSocket delivers real-time events and SDK stream chunks to the rendering engine
-- **Story 07** (Mobile App Shell): Provides the Expo/React Native project scaffold where all components live
-- **Story 10** (Session Timeline/List, F14): Consumes `TimelineItem[]` and the component registry defined here
-- **Story 11** (Agent Cards, F15): Uses `TimelineItem` types and tool call card components from here
-- **Story 12** (Desktop App, F18): Uses the same component library via Tauri WebView rendering
+- **Story 01** (Mobile App Shell): Provides the Expo/React Native project scaffold where all components live
+- **Story 04** (Session Timeline/List, F14): Consumes `TimelineItem[]` and the component registry defined here
+- **Story 05** (Agent Cards, F15): Uses `TimelineItem` types and tool call card components from here
+- **Story 06** (Desktop App, F18): Uses the same component library via Tauri WebView rendering
 
 ### Amendment Impacts on This Plan
 
@@ -74,7 +74,7 @@ Create the complete theme system with dark and light mode specifications, design
 
 **Prerequisites/Inputs**
 
-- Expo/React Native project scaffold (Story 07).
+- Expo/React Native project scaffold (Story 01).
 - No runtime dependencies on other tasks.
 
 **Implementation Details**
@@ -84,8 +84,8 @@ Create the complete theme system with dark and light mode specifications, design
 | File | Action | Purpose |
 |---|---|---|
 | `src/theme/types.ts` | Create | TypeScript interfaces for `AppTheme`, `ThemeColors`, `SyntaxTheme`, `ThemeSpacing`, `ThemeTypography` |
-| `src/theme/dark.ts` | Create | `DARK_THEME` constant with all color values from Story 08 spec |
-| `src/theme/light.ts` | Create | `LIGHT_THEME` constant with all color values from Story 08 spec |
+| `src/theme/dark.ts` | Create | `DARK_THEME` constant with all color values from Story 02 spec |
+| `src/theme/light.ts` | Create | `LIGHT_THEME` constant with all color values from Story 02 spec |
 | `src/theme/syntax.ts` | Create | `DARK_SYNTAX_THEME` and `LIGHT_SYNTAX_THEME` constants |
 | `src/theme/ThemeProvider.tsx` | Create | React context provider with system preference detection and user override |
 | `src/theme/useTheme.ts` | Create | `useTheme()` hook for consuming the theme in components |
@@ -153,7 +153,7 @@ interface ThemeColors {
 
 **Acceptance Criteria**
 
-- [ ] `AppTheme` interface is fully typed with all 40+ color keys from the Story 08 spec
+- [ ] `AppTheme` interface is fully typed with all 40+ color keys from the Story 02 spec
 - [ ] `DARK_THEME` constant contains all color values matching the spec (e.g., `background: '#0D1117'`)
 - [ ] `LIGHT_THEME` constant contains all color values matching the spec (e.g., `background: '#FFFFFF'`)
 - [ ] `ThemeProvider` detects system color scheme via `Appearance.getColorScheme()`
@@ -195,7 +195,7 @@ The normalization layer handles three concerns:
 
 | File | Action | Purpose |
 |---|---|---|
-| `src/types/timeline.ts` | Create | All `TimelineItem` type definitions (the full discriminated union from Story 08 spec) |
+| `src/types/timeline.ts` | Create | All `TimelineItem` type definitions (the full discriminated union from Story 02 spec) |
 | `src/normalization/normalizeGCEvent.ts` | Create | `normalizeGCEvent(event: GCEvent, existingItems: Map<string, TimelineItem>): TimelineItem[]` |
 | `src/normalization/normalizeSDKEvent.ts` | Create | `normalizeSDKEvent(event: AgentStreamEvent, existingItems: Map<string, TimelineItem>): TimelineItem[]` |
 | `src/normalization/mergeIntoTimeline.ts` | Create | `mergeIntoTimeline(timeline: TimelineItem[], newItems: TimelineItem[]): TimelineItem[]` |
@@ -296,7 +296,7 @@ Implement the React Native components for the three message-type timeline items:
 | `src/components/common/MarkdownTable.tsx` | Create | Native table rendering with horizontal scroll |
 | `src/components/common/ImageOutput.tsx` | Create | Image with pinch-to-zoom and fullscreen tap |
 
-**Component Specifications (from Story 08)**
+**Component Specifications (from Story 02)**
 
 `UserMessageBubble`:
 - Right-aligned, max width 85% of screen
@@ -711,7 +711,7 @@ Implement the syntax highlighting engine with language detection from file exten
 
 **Language Detection Mapping**
 
-The full 40+ extension mapping from the Story 08 spec (`.js`->`javascript`, `.ts`->`typescript`, `.py`->`python`, `.sh`->`bash`, `.json`->`json`, etc.). Fenced code blocks in markdown use the language identifier directly.
+The full 40+ extension mapping from the Story 02 spec (`.js`->`javascript`, `.ts`->`typescript`, `.py`->`python`, `.sh`->`bash`, `.json`->`json`, etc.). Fenced code blocks in markdown use the language identifier directly.
 
 **HighlightManager Interface**
 

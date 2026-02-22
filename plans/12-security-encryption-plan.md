@@ -1,4 +1,4 @@
-# Implementation Plan: Story 18 -- Security & Encryption
+# Implementation Plan: Story 12 -- Security & Encryption
 
 **Date**: 2026-02-22
 **Story**: 18-security-encryption

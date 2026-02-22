@@ -1,4 +1,4 @@
-# Implementation Plan: Story 13 -- Encrypted Cloud Sync
+# Implementation Plan: Story 07 -- Encrypted Cloud Sync
 
 **Date**: 2026-02-22
 **Story**: 13-encrypted-cloud-sync
@@ -2561,7 +2561,7 @@ Files to modify:
 **`capture-event` modification** (append after event file write):
 
 ```bash
-# --- Sync Queue Append (Story 13) ---
+# --- Sync Queue Append (Story 07) ---
 # Only runs if sync is enabled in config.json
 # Does NOT block event capture (flock with 2s timeout, exit 0 on failure)
 _GC_SYNC_ENABLED=$(jq -r '.sync.enabled // false' "$BASE_DIR/config.json" 2>/dev/null)

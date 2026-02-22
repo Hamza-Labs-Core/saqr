@@ -1,4 +1,4 @@
-# Story 09: Multi-Agent Hook System
+# Story 03: Multi-Agent Hook System
 
 ## Overview
 

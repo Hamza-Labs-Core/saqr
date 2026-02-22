@@ -1,4 +1,4 @@
-# Story 12: Local Dashboard
+# Story 06: Local Dashboard
 
 ## Overview
 

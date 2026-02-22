@@ -8,16 +8,16 @@ Orchestrate, observe, and control AI coding agents from anywhere — terminal, d
 
 | Package | Description | Story |
 |---------|-------------|-------|
-| `gc-core` | Event store foundation (bash+jq write, Node.js read) | 00-06 |
-| `daemon` | AgentContext daemon — hooks, orchestration, streaming | 09-11 |
-| `cli` | `saqr` CLI | 09 |
+| `gc-core` | Event store foundation (bash+jq write, Node.js read) | — |
+| `daemon` | AgentContext daemon — hooks, orchestration, streaming | 03-05 |
+| `cli` | `saqr` CLI | 03 |
 | `shared` | Event types, crypto, sync protocol | — |
-| `sync-client` | Encrypted push/pull/queue | 13 |
-| `sync-server` | Cloudflare Workers + Durable Objects | 17 |
-| `dashboard` | Local web dashboard | 12 |
-| `mobile` | React Native / Expo app | 14 |
-| `desktop` | Tauri desktop app | 15 |
-| `github` | GitHub integration (webhooks, PRs, issues→agents) | 16 |
+| `sync-client` | Encrypted push/pull/queue | 07 |
+| `sync-server` | Cloudflare Workers + Durable Objects | 11 |
+| `dashboard` | Local web dashboard | 06 |
+| `mobile` | React Native / Expo app | 08 |
+| `desktop` | Tauri desktop app | 09 |
+| `github` | GitHub integration (webhooks, PRs, issues→agents) | 10 |
 
 ## Architecture
 

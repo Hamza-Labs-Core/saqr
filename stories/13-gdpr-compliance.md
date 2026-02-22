@@ -1,4 +1,4 @@
-# Story 19: GDPR Compliance
+# Story 13: GDPR Compliance
 
 ## Overview
 

@@ -1,23 +1,23 @@
-# Implementation Plan: Story 16 -- GitHub Integration
+# Implementation Plan: Story 10 -- GitHub Integration
 
 **Date**: 2026-02-22
 **Story**: 16-github-integration
 **Status**: Planning
 **Estimated Total Effort**: ~12-16 days (96-128 hours)
-**Prerequisites**: Story 11 (Agent Process Orchestration) must be implementation-ready for agent spawning. Story 10 (Event Store & Projections) must be operational for event capture. The daemon HTTP/WS server (Story 12, Local Dashboard) must expose a route registration mechanism.
+**Prerequisites**: Story 05 (Agent Process Orchestration) must be implementation-ready for agent spawning. Story 04 (Event Store & Projections) must be operational for event capture. The daemon HTTP/WS server (Story 06, Local Dashboard) must expose a route registration mechanism.
 **Product Spec References**: F8.1-F8.8. See `docs/PRODUCT-SPEC.md` section F8: GitHub Integration.
 
 ### Relationship to Other Stories
 
 This story is a **consumer of core platform services** and an **orchestrator of cross-cutting workflows**. It touches agent management, the event store, the daemon's HTTP server, and client notification channels.
 
-- **Story 10** (Event Store): All GitHub operations emit events (10 custom event types). The event store's `append()` interface is the write target.
-- **Story 11** (Agent Process Orchestration): `AgentFromIssueWorkflow` and `ActionsIntegration` spawn agents via the `AgentManager` interface. Worktrees provide the `workingDirectory` for spawned agents.
-- **Story 12** (Local Dashboard): The daemon's HTTP/WS server hosts the 14 GitHub API endpoints and the webhook receiver. WebSocket broadcast is used for notification routing.
-- **Story 13** (Encrypted Cloud Sync): GitHub events follow the same sync pipeline as other events -- cleartext metadata (event_type, repo, pr_number) + encrypted payload.
-- **Story 14** (Mobile App): Mobile triggers the agent-from-issue workflow via the daemon API. Push notifications for PR reviews and CI failures flow through the notification router.
-- **Story 15** (Desktop App): Desktop receives the same WebSocket notifications as the dashboard.
-- **Story 18** (Security & Encryption): GitHub App private key and webhook secret are stored via the secure credential storage mechanism (Keychain/DPAPI/Secret Service).
+- **Story 04** (Event Store): All GitHub operations emit events (10 custom event types). The event store's `append()` interface is the write target.
+- **Story 05** (Agent Process Orchestration): `AgentFromIssueWorkflow` and `ActionsIntegration` spawn agents via the `AgentManager` interface. Worktrees provide the `workingDirectory` for spawned agents.
+- **Story 06** (Local Dashboard): The daemon's HTTP/WS server hosts the 14 GitHub API endpoints and the webhook receiver. WebSocket broadcast is used for notification routing.
+- **Story 07** (Encrypted Cloud Sync): GitHub events follow the same sync pipeline as other events -- cleartext metadata (event_type, repo, pr_number) + encrypted payload.
+- **Story 08** (Mobile App): Mobile triggers the agent-from-issue workflow via the daemon API. Push notifications for PR reviews and CI failures flow through the notification router.
+- **Story 09** (Desktop App): Desktop receives the same WebSocket notifications as the dashboard.
+- **Story 12** (Security & Encryption): GitHub App private key and webhook secret are stored via the secure credential storage mechanism (Keychain/DPAPI/Secret Service).
 
 ### Amendment Impacts on This Plan
 
@@ -1150,7 +1150,7 @@ Implement the notification router that distributes GitHub webhook notifications 
 
 - Task 6 (webhook handler for registering event handlers).
 - Task 13 (event types for `GitHubWebhookReceived`).
-- Daemon's WebSocket server (from Story 12).
+- Daemon's WebSocket server (from Story 06).
 
 **Implementation Details**
 
@@ -1326,7 +1326,7 @@ This is an orchestration task that composes modules from Tasks 2, 5, 7, and 8.
 - Task 7 (PR creator).
 - Task 8 (notification router).
 - Task 13 (event types: `AgentFromIssueStarted`, `AgentFromIssueCompleted`).
-- Story 11 (Agent Manager) for `agentManager.spawn()`.
+- Story 05 (Agent Manager) for `agentManager.spawn()`.
 
 **Implementation Details**
 
@@ -1646,7 +1646,7 @@ Implement the worktree listing endpoint and conflict detection system. Multiple 
 **Prerequisites/Inputs**
 
 - Task 5 (worktree manager).
-- Story 11 (agent manager for querying agent status per worktree).
+- Story 05 (agent manager for querying agent status per worktree).
 
 **Implementation Details**
 
@@ -1784,7 +1784,7 @@ Implement the GitHub Actions integration that triggers agent workflows from CI e
 - Task 5 (worktree manager).
 - Task 6 (webhook handler for registering the `workflow_run` handler).
 - Task 13 (event types for `GitHubActionsAgentTriggered`).
-- Story 11 (agent manager).
+- Story 05 (agent manager).
 
 **Implementation Details**
 
@@ -1960,7 +1960,7 @@ Register all 14 GitHub API endpoints with the daemon's HTTP server. This task wi
 **Prerequisites/Inputs**
 
 - All Tasks 2-11 (handler implementations).
-- Story 12 (daemon HTTP server with route registration mechanism).
+- Story 06 (daemon HTTP server with route registration mechanism).
 
 **Implementation Details**
 
@@ -2120,7 +2120,7 @@ Define and document all 10 custom event types for the GitHub integration. These 
 **Prerequisites/Inputs**
 
 - Task 1 (module scaffolding).
-- Story 10 (event store schema and `append()` interface).
+- Story 04 (event store schema and `append()` interface).
 
 **Implementation Details**
 
@@ -2453,17 +2453,17 @@ Tasks within each phase can be partially parallelized:
 
 1. **No npm dependencies**. This project uses Node.js without npm. All GitHub API interactions use the built-in `fetch` API (Node 18+). JWT generation uses built-in `crypto`. There is no `@octokit/rest` or `@octokit/auth-app` -- we implement the equivalent functionality directly.
 
-2. **The daemon must exist first**. This plan assumes `daemon/src/` exists with an HTTP server, WebSocket server, and event store integration. If the daemon has not been scaffolded yet (Stories 11-12), Task 12 (route registration) blocks on that.
+2. **The daemon must exist first**. This plan assumes `daemon/src/` exists with an HTTP server, WebSocket server, and event store integration. If the daemon has not been scaffolded yet (Stories 05-06), Task 12 (route registration) blocks on that.
 
 3. **Worktree base directory** is `~/.agentcontext/worktrees/` by default, configurable via `github.worktree_base` in the daemon config. This directory is created lazily on first worktree creation.
 
-4. **Event store integration** uses the `eventStore.append({ event_type, data })` interface from Story 10. Events are validated via `validateEventData()` (Task 13) before appending.
+4. **Event store integration** uses the `eventStore.append({ event_type, data })` interface from Story 04. Events are validated via `validateEventData()` (Task 13) before appending.
 
 5. **Webhook tunnel for local mode**. In local-only mode (no sync server), webhooks require a tunnel (ngrok, cloudflared) to expose the daemon's `POST /github/webhook` endpoint to the internet. In synced mode, the sync server relay can forward webhooks. This plan does not implement the tunnel setup -- it is a manual user configuration step documented in setup guides.
 
 6. **GraphQL vs REST**: Use GraphQL for aggregate queries (repo list with nested PR counts, reducing round trips). Use REST for single-resource operations (branches for one repo, creating a PR). The authenticated fetch wrapper from Task 2 supports both.
 
-7. **Agent Manager interface**. Tasks 9 and 11 call `agentManager.spawn()` which returns an agent handle with `.on("completed", fn)` and `.on("error", fn)`. The agent handle also exposes `.id`, `.provider`, `.model`, `.sessionId`, `.duration`, `.toolCallCount`, `.filesModified`, and `.getChangeSummary()`. This interface is defined by Story 11.
+7. **Agent Manager interface**. Tasks 9 and 11 call `agentManager.spawn()` which returns an agent handle with `.on("completed", fn)` and `.on("error", fn)`. The agent handle also exposes `.id`, `.provider`, `.model`, `.sessionId`, `.duration`, `.toolCallCount`, `.filesModified`, and `.getChangeSummary()`. This interface is defined by Story 05.
 
 8. **Idempotency**. Worktree creation checks for existing worktrees before creating. PR creation checks for existing PRs before creating. Agent-from-issue checks for active workflows before spawning. All operations are safe to retry.
 

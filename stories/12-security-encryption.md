@@ -1,4 +1,4 @@
-# Story 18: Security & Encryption
+# Story 12: Security & Encryption
 
 ## Overview
 

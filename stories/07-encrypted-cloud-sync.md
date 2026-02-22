@@ -1,4 +1,4 @@
-# Story 13: Encrypted Cloud Sync
+# Story 07: Encrypted Cloud Sync
 
 ## Overview
 

@@ -1,4 +1,4 @@
-# Implementation Plan: Story 11 -- Agent Process Orchestration
+# Implementation Plan: Story 05 -- Agent Process Orchestration
 
 **Date**: 2026-02-22
 **Story**: 11-agent-process-orchestration
@@ -68,7 +68,7 @@ Define all shared TypeScript interfaces, types, enums, and error classes used ac
 **Prerequisites/Inputs**
 
 - Node.js 18+ with TypeScript 5.x configured
-- Story 11 spec interfaces (copied verbatim as the starting point, then refined)
+- Story 05 spec interfaces (copied verbatim as the starting point, then refined)
 
 **Implementation Details**
 

@@ -1,21 +1,21 @@
-# Implementation Plan: Story 15 -- Desktop App (Tauri)
+# Implementation Plan: Story 09 -- Desktop App (Tauri)
 
 **Date**: 2026-02-22
 **Story**: 15-desktop-app
 **Status**: Planning
 **Estimated Total Effort**: ~12-15 days (96-120 hours)
-**Prerequisites**: Story 12 (Local Dashboard / F4) must be implemented -- the desktop app wraps the dashboard frontend. Story 11 (Agent Process Orchestration / F3) must be implemented -- the app connects to the running daemon. Story 13 (Encrypted Cloud Sync / F5) design must be stable -- the key storage IPC serves F5's encryption keys.
+**Prerequisites**: Story 06 (Local Dashboard / F4) must be implemented -- the desktop app wraps the dashboard frontend. Story 05 (Agent Process Orchestration / F3) must be implemented -- the app connects to the running daemon. Story 07 (Encrypted Cloud Sync / F5) design must be stable -- the key storage IPC serves F5's encryption keys.
 **Platform Evaluation**: See `docs/PLATFORM-EVALUATION.md` for Tauri 2 selection rationale.
 
 ### Relationship to Other Stories
 
 This is the **native desktop wrapper** story. It produces a cross-platform Tauri 2 application (`agentcontext-desktop/`) that integrates with the operating system at a level impossible in a browser:
 
-- **Story 12** (Local Dashboard / F4): The dashboard frontend is loaded inside the Tauri WebView. This story wraps it; it does not build it.
-- **Story 11** (Agent Process Orchestration / F3): The desktop app connects to the daemon's HTTP/WS server for agent status, lifecycle management, and streaming. The `DaemonClient` in Rust hits the daemon's REST API.
-- **Story 13** (Encrypted Cloud Sync / F5): The desktop app provides secure key storage (macOS Keychain, Windows DPAPI, Linux Secret Service) for F5's encryption keys. F5 calls the key storage IPC commands.
-- **Story 14** (Mobile App / F6): Shares the same daemon API contract and notification event types. No direct code dependency, but consistent IPC semantics.
-- **Story 18** (Security & Encryption / F10): Key storage backend aligns with F10.6 (Desktop keychain). Biometric gating aligns with F10 design.
+- **Story 06** (Local Dashboard / F4): The dashboard frontend is loaded inside the Tauri WebView. This story wraps it; it does not build it.
+- **Story 05** (Agent Process Orchestration / F3): The desktop app connects to the daemon's HTTP/WS server for agent status, lifecycle management, and streaming. The `DaemonClient` in Rust hits the daemon's REST API.
+- **Story 07** (Encrypted Cloud Sync / F5): The desktop app provides secure key storage (macOS Keychain, Windows DPAPI, Linux Secret Service) for F5's encryption keys. F5 calls the key storage IPC commands.
+- **Story 08** (Mobile App / F6): Shares the same daemon API contract and notification event types. No direct code dependency, but consistent IPC semantics.
+- **Story 12** (Security & Encryption / F10): Key storage backend aligns with F10.6 (Desktop keychain). Biometric gating aligns with F10 design.
 
 ### Amendment Impacts on This Plan
 
@@ -229,7 +229,7 @@ Implement the `AppState` struct that holds shared application state (daemon clie
 **Prerequisites/Inputs**
 
 - Task 1 (project scaffold) complete.
-- Daemon HTTP API contract from Story 11 (F3): `GET /api/health` returns `DaemonStatus`.
+- Daemon HTTP API contract from Story 05 (F3): `GET /api/health` returns `DaemonStatus`.
 - Daemon default port: 7399 (HTTP), configurable via environment or config file.
 
 **Implementation Details**
@@ -581,7 +581,7 @@ Implement platform-specific secure key storage using the `keyring` crate for cro
 - `keyring` crate v3 in Cargo.toml.
 - `base64` crate v0.22 for encoding/decoding.
 - `zeroize` crate v1 for secure memory clearing.
-- Story 13 (F5) defines the key IDs and usage patterns for encryption keys.
+- Story 07 (F5) defines the key IDs and usage patterns for encryption keys.
 
 **Implementation Details**
 

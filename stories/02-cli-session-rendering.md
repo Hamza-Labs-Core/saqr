@@ -1,4 +1,4 @@
-# Story 08: CLI Session Rendering on Mobile & Desktop
+# Story 02: CLI Session Rendering on Mobile & Desktop
 
 ## Overview
 

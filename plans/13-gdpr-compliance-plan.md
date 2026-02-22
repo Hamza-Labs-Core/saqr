@@ -1,22 +1,22 @@
-# Implementation Plan: Story 19 -- GDPR Compliance
+# Implementation Plan: Story 13 -- GDPR Compliance
 
 **Date**: 2026-02-22
 **Story**: 19-gdpr-compliance
 **Status**: Planning
 **Estimated Total Effort**: ~12-16 days (96-128 hours)
-**Prerequisites**: Story 17 (Sync Server) must be architecturally stable. Story 18 (Security & Encryption) must define the XChaCha20-Poly1305 encryption primitives and key management interfaces. Story 13 (Encrypted Cloud Sync) must define the cleartext metadata vs encrypted blob split.
+**Prerequisites**: Story 11 (Sync Server) must be architecturally stable. Story 12 (Security & Encryption) must define the XChaCha20-Poly1305 encryption primitives and key management interfaces. Story 07 (Encrypted Cloud Sync) must define the cleartext metadata vs encrypted blob split.
 **GDPR Articles Referenced**: Art. 5, 6, 7, 12-14, 15, 17, 20, 25, 28, 30, 32, 33, 34, 44-49
 
 ### Relationship to Other Stories
 
 This is a **cross-cutting compliance story** that formalizes, audits, and extends the privacy guarantees provided by other stories. It does not build the encryption or sync systems -- those are prerequisites -- but it adds the GDPR-specific enforcement layer, documentation, APIs, and tests.
 
-- **Story 13** (Encrypted Cloud Sync): Defines the cleartext metadata vs encrypted blob split. This plan enforces metadata minimization on that split and adds the `sanitizeMetadata()` server-side validation.
-- **Story 17** (Sync Server): Provides the Worker + DO + R2 infrastructure. This plan adds the `DELETE /api/account` endpoint, `POST /api/account/export` endpoint, consent middleware, EU routing, and privacy headers.
-- **Story 18** (Security & Encryption): Provides XChaCha20-Poly1305 encryption, key management, and Argon2id KDF. This plan relies on these primitives for crypto-shredding guarantees and client-side export decryption.
-- **Story 14** (Mobile App): Must integrate consent UI, data export, account deletion, and cookie-free design.
-- **Story 15** (Desktop App): Must integrate consent UI and cookie-free design.
-- **Story 12** (Local Dashboard): Must integrate privacy headers and cookie-free design.
+- **Story 07** (Encrypted Cloud Sync): Defines the cleartext metadata vs encrypted blob split. This plan enforces metadata minimization on that split and adds the `sanitizeMetadata()` server-side validation.
+- **Story 11** (Sync Server): Provides the Worker + DO + R2 infrastructure. This plan adds the `DELETE /api/account` endpoint, `POST /api/account/export` endpoint, consent middleware, EU routing, and privacy headers.
+- **Story 12** (Security & Encryption): Provides XChaCha20-Poly1305 encryption, key management, and Argon2id KDF. This plan relies on these primitives for crypto-shredding guarantees and client-side export decryption.
+- **Story 08** (Mobile App): Must integrate consent UI, data export, account deletion, and cookie-free design.
+- **Story 09** (Desktop App): Must integrate consent UI and cookie-free design.
+- **Story 06** (Local Dashboard): Must integrate privacy headers and cookie-free design.
 
 ### Platform Evaluation References
 
@@ -80,9 +80,9 @@ Create a formal, versioned data inventory document that catalogs every field the
 
 **Prerequisites/Inputs**
 
-- Story 13 sync metadata schema (cleartext metadata fields)
-- Story 17 KV account record schema
-- Story 18 encrypted blob schema
+- Story 07 sync metadata schema (cleartext metadata fields)
+- Story 11 KV account record schema
+- Story 12 encrypted blob schema
 - Platform Evaluation Section 5.1 (encrypted data = pseudonymized personal data)
 
 **Implementation Details**
@@ -146,7 +146,7 @@ Implement server-side validation in the Cloudflare Worker that strips any unexpe
 **Prerequisites/Inputs**
 
 - Task 1 (Data Inventory defines the allowed field set)
-- Story 17 Worker API layer (push endpoint)
+- Story 11 Worker API layer (push endpoint)
 
 **Implementation Details**
 
@@ -250,7 +250,7 @@ Implement the daemon's sync client metadata builder that constructs cleartext me
 **Prerequisites/Inputs**
 
 - Task 1 (Data Inventory defines which fields are cleartext)
-- Story 13 sync client (push flow)
+- Story 07 sync client (push flow)
 - Story 01 event envelope schema
 
 **Implementation Details**
@@ -285,7 +285,7 @@ interface SyncMetadata {
 
 function deriveMachineId(): string {
   // Returns a hash-based machine identifier, e.g., "macbook-a3f7b2"
-  // Implementation from Story 13 -- hostname hashed, not raw
+  // Implementation from Story 07 -- hostname hashed, not raw
   const hostname = os.hostname();
   const hash = createHash('sha256').update(hostname).digest('hex').substring(0, 6);
   const basename = hostname.split('.')[0].toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -354,8 +354,8 @@ Implement the `DELETE /api/account` endpoint in the Cloudflare Worker that orche
 
 **Prerequisites/Inputs**
 
-- Story 17 (Worker API layer, DO class, KV namespace, R2 bucket bindings)
-- Story 18 (crypto-shredding relies on encryption key being client-only)
+- Story 11 (Worker API layer, DO class, KV namespace, R2 bucket bindings)
+- Story 12 (crypto-shredding relies on encryption key being client-only)
 - Platform Evaluation Section 5.2 (crypto-shredding flow)
 - Task 1 (Data Inventory -- what to delete)
 
@@ -550,7 +550,7 @@ Create the deletion audit subsystem that records account deletions without stori
 **Prerequisites/Inputs**
 
 - Task 4 (deletion flow produces the audit data)
-- Story 17 KV namespace bindings
+- Story 11 KV namespace bindings
 
 **Implementation Details**
 
@@ -662,7 +662,7 @@ Implement the `POST /api/account/export` endpoint that generates a ZIP archive o
 
 **Prerequisites/Inputs**
 
-- Story 17 (Worker API, DO, R2 bindings)
+- Story 11 (Worker API, DO, R2 bindings)
 - Task 1 (Data Inventory defines what to export)
 - Platform Evaluation Section 5.4 (client-side decryption for portability)
 
@@ -820,7 +820,7 @@ Implement the CLI commands for decrypting an exported archive and importing decr
 **Prerequisites/Inputs**
 
 - Task 6 (export archive format)
-- Story 18 (XChaCha20-Poly1305 decryption, master key from OS keychain)
+- Story 12 (XChaCha20-Poly1305 decryption, master key from OS keychain)
 - Story 05 (local event store structure for import)
 
 **Implementation Details**
@@ -923,7 +923,7 @@ Implement the consent recording and withdrawal system. Local-only mode requires 
 
 **Prerequisites/Inputs**
 
-- Story 17 (KV account records, Worker API)
+- Story 11 (KV account records, Worker API)
 - Task 1 (Data Inventory -- what the consent covers)
 
 **Implementation Details**
@@ -1087,7 +1087,7 @@ Implement the Worker middleware that checks consent status on every sync-related
 **Prerequisites/Inputs**
 
 - Task 8 (consent records in KV)
-- Story 17 (Worker middleware chain)
+- Story 11 (Worker middleware chain)
 
 **Implementation Details**
 
@@ -1229,7 +1229,7 @@ Implement EU data residency by routing EU users' Durable Objects and R2 storage 
 
 **Prerequisites/Inputs**
 
-- Story 17 (DO class, R2 buckets, KV)
+- Story 11 (DO class, R2 buckets, KV)
 - Platform Evaluation Section 5.3 (jurisdiction hints, caveats)
 - Task 8 (consent -- region change from EU to non-EU requires re-consent)
 
@@ -1422,8 +1422,8 @@ Add privacy-protecting HTTP headers to all Worker responses and enforce the cook
 
 **Prerequisites/Inputs**
 
-- Story 17 (Worker response pipeline)
-- Story 12 (Dashboard -- must not set cookies)
+- Story 11 (Worker response pipeline)
+- Story 06 (Dashboard -- must not set cookies)
 
 **Implementation Details**
 
@@ -1472,7 +1472,7 @@ export default {
 
 **Dashboard enforcement** (for the local dashboard served by the daemon):
 
-The daemon's HTTP server must also set these headers on all responses. Add to the dashboard's response builder in Story 12.
+The daemon's HTTP server must also set these headers on all responses. Add to the dashboard's response builder in Story 06.
 
 ```typescript
 // Daemon HTTP server response builder
@@ -1624,7 +1624,7 @@ Create the incident response plan, breach classification table, and notification
 **Prerequisites/Inputs**
 
 - Task 1 (Data Inventory -- classifies what data is at risk in each breach type)
-- Story 18 (encryption guarantees underpin the Art. 34(3)(a) exemption argument)
+- Story 12 (encryption guarantees underpin the Art. 34(3)(a) exemption argument)
 
 **Implementation Details**
 
@@ -1691,7 +1691,7 @@ Create a Data Processing Agreement template that team and enterprise customers c
 - Task 1 (Data Inventory -- Annex A)
 - Task 10 (EU residency -- international transfers section)
 - Task 13 (breach notification -- DPA breach notification clause)
-- Story 18 (security measures -- Annex B)
+- Story 12 (security measures -- Annex B)
 
 **Implementation Details**
 
@@ -1714,7 +1714,7 @@ The DPA follows the 12-section structure from the story spec:
 
 Plus 4 annexes:
 - Annex A: Data Inventory (from Task 1)
-- Annex B: Security Measures (from Story 18)
+- Annex B: Security Measures (from Story 12)
 - Annex C: Sub-Processor List (Cloudflare details)
 - Annex D: Standard Contractual Clauses (EU Commission approved SCCs)
 
@@ -1749,7 +1749,7 @@ Create a comprehensive automated test suite that verifies GDPR compliance across
 **Prerequisites/Inputs**
 
 - Tasks 2-11 (all technical implementations must exist to test)
-- Story 17 (test infrastructure for Worker/DO/R2)
+- Story 11 (test infrastructure for Worker/DO/R2)
 
 **Implementation Details**
 

@@ -1,10 +1,10 @@
-# Implementation Plan: Story 14 -- Mobile App (Paseo Fork)
+# Implementation Plan: Story 08 -- Mobile App (Paseo Fork)
 
 **Date**: 2026-02-22
 **Story**: 14-mobile-app
 **Status**: Planning
 **Estimated Total Effort**: ~18-22 days (144-176 hours)
-**Prerequisites**: Story 08 (CLI Session Rendering) rendering components available as a dependency; Story 13 (Encrypted Cloud Sync) crypto API consumable; Story 11 (Agent Process Orchestration) daemon WebSocket API operational; Story 17 (Sync Server) relay infrastructure running.
+**Prerequisites**: Story 02 (CLI Session Rendering) rendering components available as a dependency; Story 07 (Encrypted Cloud Sync) crypto API consumable; Story 05 (Agent Process Orchestration) daemon WebSocket API operational; Story 11 (Sync Server) relay infrastructure running.
 
 ---
 
@@ -12,20 +12,20 @@
 
 This is the **primary remote interface story**. It produces the Expo/React Native mobile app that consumes APIs and protocols defined by multiple other stories:
 
-- **Story 08** (CLI Session Rendering): Provides the structured event renderer, streaming text renderer, diff viewer component, and terminal emulator widget (F13.1-F13.14). This story provides the *shell* those components render inside.
-- **Story 11** (Agent Process Orchestration): Provides the daemon's WebSocket API for agent lifecycle operations -- `listAgents`, `getAgent`, `sendPrompt`, `approvePermission`, `denyPermission`, streaming subscriptions.
-- **Story 12** (Local Dashboard): Shares the daemon's HTTP/WS server endpoints. The mobile app connects to the same `/ws` endpoint the dashboard uses.
-- **Story 13** (Encrypted Cloud Sync): Provides the client-side encryption API (`XChaCha20-Poly1305`, `Argon2id` key derivation) that this story consumes for encrypting/decrypting session data.
-- **Story 17** (Sync Server): Provides the Cloudflare relay for E2EE WebSocket connections when daemons are not on the same LAN.
-- **Story 18** (Security & Encryption): Defines the cryptographic primitives (Curve25519 ECDH, XChaCha20-Poly1305, key storage specifications) consumed by QR pairing and key transfer.
+- **Story 02** (CLI Session Rendering): Provides the structured event renderer, streaming text renderer, diff viewer component, and terminal emulator widget (F13.1-F13.14). This story provides the *shell* those components render inside.
+- **Story 05** (Agent Process Orchestration): Provides the daemon's WebSocket API for agent lifecycle operations -- `listAgents`, `getAgent`, `sendPrompt`, `approvePermission`, `denyPermission`, streaming subscriptions.
+- **Story 06** (Local Dashboard): Shares the daemon's HTTP/WS server endpoints. The mobile app connects to the same `/ws` endpoint the dashboard uses.
+- **Story 07** (Encrypted Cloud Sync): Provides the client-side encryption API (`XChaCha20-Poly1305`, `Argon2id` key derivation) that this story consumes for encrypting/decrypting session data.
+- **Story 11** (Sync Server): Provides the Cloudflare relay for E2EE WebSocket connections when daemons are not on the same LAN.
+- **Story 12** (Security & Encryption): Defines the cryptographic primitives (Curve25519 ECDH, XChaCha20-Poly1305, key storage specifications) consumed by QR pairing and key transfer.
 
 ### What This Plan Does NOT Cover
 
-- Session rendering components (Story 08 / F13) -- this plan integrates them but does not implement them.
-- Daemon-side WebSocket API (Story 11 / Story 12) -- this plan calls those APIs.
-- Sync server / relay infrastructure (Story 17) -- this plan connects through the relay.
-- Encryption algorithm implementation (Story 18) -- this plan wraps libsodium calls.
-- Session takeover / managed PTY proxy (Story 07 / F12.3-F12.7) -- out of scope.
+- Session rendering components (Story 02 / F13) -- this plan integrates them but does not implement them.
+- Daemon-side WebSocket API (Story 05 / Story 06) -- this plan calls those APIs.
+- Sync server / relay infrastructure (Story 11) -- this plan connects through the relay.
+- Encryption algorithm implementation (Story 12) -- this plan wraps libsodium calls.
+- Session takeover / managed PTY proxy (Story 01 / F12.3-F12.7) -- out of scope.
 
 ---
 
@@ -179,8 +179,8 @@ Define all TypeScript types, interfaces, and enums that the entire app shares. T
 **Prerequisites/Inputs**
 
 - Task 1 (Expo project exists)
-- Story 14 specification (data structures from sections 2-14)
-- Story 11 specification (AgentStreamEvent types)
+- Story 08 specification (data structures from sections 2-14)
+- Story 05 specification (AgentStreamEvent types)
 
 **Implementation Details**
 
@@ -253,7 +253,7 @@ All types must:
 **Acceptance Criteria**
 
 - [ ] All 9 type files compile without errors under `strict` TypeScript configuration
-- [ ] Every interface from Story 14 sections 2-14 is represented
+- [ ] Every interface from Story 08 sections 2-14 is represented
 - [ ] Navigation param lists are complete for all screens
 - [ ] No `any` types used anywhere
 - [ ] All optional fields are explicitly marked with `?`
@@ -277,7 +277,7 @@ Implement the `ConnectionManager` singleton and `DaemonConnection` class that ma
 **Prerequisites/Inputs**
 
 - Task 2 (type definitions)
-- Daemon WebSocket API specification (Story 11, Story 12)
+- Daemon WebSocket API specification (Story 05, Story 06)
 - Paseo relay protocol specification (for E2EE relay connections)
 
 **Implementation Details**
@@ -716,13 +716,13 @@ Empty states:
 
 **Description**
 
-Implement the agent detail screen where users view streaming agent output, send prompts, and approve/deny permission requests. This screen hosts the session timeline area (delegated to Story 08 rendering components) and provides the prompt input and permission action sheet.
+Implement the agent detail screen where users view streaming agent output, send prompts, and approve/deny permission requests. This screen hosts the session timeline area (delegated to Story 02 rendering components) and provides the prompt input and permission action sheet.
 
 **Prerequisites/Inputs**
 
 - Task 5 (navigation from AgentListScreen)
 - Task 3 (DaemonConnection for agent operations and streaming)
-- Story 08 rendering components (or placeholder/mock for initial development)
+- Story 02 rendering components (or placeholder/mock for initial development)
 
 **Implementation Details**
 
@@ -764,7 +764,7 @@ Screen layout (from story spec):
 |---------------------------------------|
 |                                       |
 |  [ Session timeline area ]            |
-|  (Story 08 F13 rendering components  |
+|  (Story 02 F13 rendering components  |
 |   or placeholder ScrollView)          |
 |                                       |
 |---------------------------------------|
@@ -816,7 +816,7 @@ Interrupt: long-press on the header status area presents an "Interrupt Agent?" c
 **Acceptance Criteria**
 
 - [ ] Agent detail screen header shows status, model, token usage, and cost
-- [ ] Session timeline area renders (placeholder or Story 08 components)
+- [ ] Session timeline area renders (placeholder or Story 02 components)
 - [ ] Prompt input is multiline, auto-growing up to 6 lines, with KeyboardAvoidingView
 - [ ] Send button enabled only when agent is idle and input is non-empty
 - [ ] Prompt is sent to daemon via `DaemonConnection.sendPrompt()` and appears in timeline immediately
@@ -2090,7 +2090,7 @@ Implement the dark/light theme system with the specified color palettes, typogra
 **Prerequisites/Inputs**
 
 - Task 1 (Expo project exists)
-- Story 14 theme specification (Section 1 - DarkTheme colors)
+- Story 08 theme specification (Section 1 - DarkTheme colors)
 
 **Implementation Details**
 
@@ -2429,7 +2429,7 @@ Tasks within a phase can be partially parallelized:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Story 08 rendering components not ready | Medium | High (agent detail screen is a shell) | Implement placeholder components that show raw JSON events; swap in real renderers later |
+| Story 02 rendering components not ready | Medium | High (agent detail screen is a shell) | Implement placeholder components that show raw JSON events; swap in real renderers later |
 | Daemon WebSocket API not finalized | Medium | High (all data fetching blocked) | Define a mock daemon server early (Task 3); code against the mock; swap real daemon later |
 | `react-native-keychain` biometric issues on specific devices | Medium | Medium (key management broken) | Fall back to `expo-secure-store` without biometric ACL; document unsupported devices |
 | libsodium WASM bundle size (200KB) | Low | Medium (app size increase) | Acceptable; listed in dependencies; use tree-shaking to import only needed functions |
@@ -2444,7 +2444,7 @@ Tasks within a phase can be partially parallelized:
 
 ## Notes for Implementation
 
-1. **Story 08 integration is the critical dependency.** The agent detail screen and session detail screen delegate rendering to Story 08's components (F13.1-F13.14). Start with placeholder renderers that display raw event data, and swap in real components as they become available.
+1. **Story 02 integration is the critical dependency.** The agent detail screen and session detail screen delegate rendering to Story 02's components (F13.1-F13.14). Start with placeholder renderers that display raw event data, and swap in real components as they become available.
 
 2. **Mock daemon server.** Build a simple WebSocket mock server early (Task 3) that simulates agent events, session data, and file operations. This unblocks all screen development without requiring the real daemon.
 

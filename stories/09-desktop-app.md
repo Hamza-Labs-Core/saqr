@@ -1,4 +1,4 @@
-# Story 15: Desktop App (Tauri)
+# Story 09: Desktop App (Tauri)
 
 ## Overview
 

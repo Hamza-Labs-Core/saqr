@@ -1,11 +1,11 @@
-# Implementation Plan: Story 12 -- Local Dashboard
+# Implementation Plan: Story 06 -- Local Dashboard
 
 **Date**: 2026-02-22
 **Story**: 12-local-dashboard
 **Status**: Planning
 **Estimated Total Effort**: ~12-16 days (96-128 hours)
 **Prerequisites**: Existing `gc-dashboard` (~3010 lines) serves as the base. Stories 01-05 (event store, hooks, projections) must be functional. Story 00 (installation) provides deploy.sh integration.
-**Design Amendments**: None specific. Story 12 is new scope defined in `docs/PRODUCT-SPEC.md` (F4.1-F4.10).
+**Design Amendments**: None specific. Story 06 is new scope defined in `docs/PRODUCT-SPEC.md` (F4.1-F4.10).
 
 ### Relationship to Other Stories
 

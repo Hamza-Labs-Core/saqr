@@ -1,4 +1,4 @@
-# Story 16: GitHub Integration
+# Story 10: GitHub Integration
 
 ## Overview
 

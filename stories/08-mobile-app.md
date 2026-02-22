@@ -1,10 +1,10 @@
-# Story 14: Mobile App (Paseo Fork)
+# Story 08: Mobile App (Paseo Fork)
 
 ## Overview
 
 The Mobile App is a native iOS and Android application forked from Paseo's existing Expo/React Native app. It is the primary remote interface for managing agents, reviewing session history, and interacting with daemons running on development machines. The app connects to one or more AgentContext daemons via direct LAN connections or the Cloudflare E2EE relay, providing a unified view of all agents across all machines.
 
-This story covers the **app shell, navigation, data layer, and all features NOT related to session rendering**. The actual CLI-to-mobile rendering (structured event cards, streaming text, diff components, terminal emulator widget) is specified in Story 08 (F13). This story covers the container those rendering components live in, plus all app-level features: multi-daemon registry, QR pairing, session history browsing, usage dashboard, push notifications, file explorer, voice input, encryption key management, and offline mode.
+This story covers the **app shell, navigation, data layer, and all features NOT related to session rendering**. The actual CLI-to-mobile rendering (structured event cards, streaming text, diff components, terminal emulator widget) is specified in Story 02 (F13). This story covers the container those rendering components live in, plus all app-level features: multi-daemon registry, QR pairing, session history browsing, usage dashboard, push notifications, file explorer, voice input, encryption key management, and offline mode.
 
 **Guiding principle**: The mobile app is a remote control, not a replacement for the CLI. Users should be able to monitor, review, and intervene from their phone -- but the heavy lifting happens on their development machines. Every screen must load fast, even on slow cellular connections, because the user might be checking on a long-running agent from a coffee shop.
 
@@ -22,7 +22,7 @@ This story covers the **app shell, navigation, data layer, and all features NOT 
 - Session history browsing with cross-machine search (F6.5)
 - Usage dashboard with charts (F6.6)
 - Push notifications for agent events (F6.7)
-- Diff viewer shell (F6.8; rendering details in Story 08/F13.3)
+- Diff viewer shell (F6.8; rendering details in Story 02/F13.3)
 - File explorer for remote workspace browsing (F6.9)
 - Voice input for hands-free prompting (F6.10)
 - Encryption key management with Keychain/Keystore (F6.11)
@@ -31,7 +31,7 @@ This story covers the **app shell, navigation, data layer, and all features NOT 
 
 ### Out of Scope (Non-Goals)
 
-- CLI session rendering components (Story 08 / F13)
+- CLI session rendering components (Story 02 / F13)
 - Structured event renderer, streaming text renderer, terminal emulator widget (F13.1-F13.14)
 - Desktop app / Tauri wrapper (F7)
 - GitHub integration UI (F8; separate story)
@@ -57,11 +57,11 @@ Root (BottomTabNavigator)
   +-- Agents Tab (StackNavigator)
   |     |-- AgentListScreen (unified, all machines)
   |     |-- AgentDetailScreen (single agent: streaming output, interaction)
-  |     +-- AgentSessionScreen (live session view -- delegates to Story 08 components)
+  |     +-- AgentSessionScreen (live session view -- delegates to Story 02 components)
   |
   +-- Sessions Tab (StackNavigator)
   |     |-- SessionListScreen (history across all machines, search)
-  |     |-- SessionDetailScreen (event timeline -- delegates to Story 08 components)
+  |     |-- SessionDetailScreen (event timeline -- delegates to Story 02 components)
   |     +-- SessionFileExplorerScreen (remote file browser)
   |
   +-- Dashboard Tab (StackNavigator)
@@ -555,7 +555,7 @@ From the AgentDetailScreen, users can send prompts, view streaming output, and a
 |---------------------------------------|
 |                                       |
 |  [ Session timeline area ]            |
-|  (delegates to Story 08 F13          |
+|  (delegates to Story 02 F13          |
 |   rendering components)              |
 |                                       |
 |                                       |
@@ -634,7 +634,7 @@ If the app is backgrounded when a permission request arrives, a push notificatio
 #### Acceptance Criteria
 
 - [ ] Agent detail screen shows agent status, model, token usage, and cost in header
-- [ ] Session timeline renders using Story 08 (F13) rendering components
+- [ ] Session timeline renders using Story 02 (F13) rendering components
 - [ ] Prompt input is multiline, auto-growing, with keyboard avoidance
 - [ ] Send button is enabled only when agent is idle and input is non-empty
 - [ ] Prompt is sent to the daemon via WebSocket and appears immediately in the timeline
@@ -1153,7 +1153,7 @@ interface NotificationSettings {
 
 ### 9. Diff Viewer (F6.8)
 
-The diff viewer displays syntax-highlighted unified diffs for file changes made by agents. The full rendering component specification is in Story 08 (F13.3). This section covers the container, gesture support, and integration with the session timeline.
+The diff viewer displays syntax-highlighted unified diffs for file changes made by agents. The full rendering component specification is in Story 02 (F13.3). This section covers the container, gesture support, and integration with the session timeline.
 
 #### Diff Viewer Shell
 
@@ -1217,7 +1217,7 @@ function useDiffGestures(): {
 - [ ] Line numbers are displayed in the gutter
 - [ ] On tablets (width > 768pt), swipe gesture toggles between unified and side-by-side views
 - [ ] Diff viewer loads and renders within 500ms for diffs up to 500 lines
-- [ ] Full rendering details defer to Story 08 (F13.3) component specification
+- [ ] Full rendering details defer to Story 02 (F13.3) component specification
 
 ---
 
@@ -1977,7 +1977,7 @@ Daemon detects permission request
 
 **Scenario**: A user opens the session detail for a session with 10,000+ events.
 
-**Expected behavior**: Events are loaded in pages of 50, using a cursor-based pagination. The timeline is rendered with a virtualized list (`FlashList`) that only keeps ~20 items in memory at a time. Scrolling is smooth at 60fps. A "Jump to latest" button appears when the user is scrolled up. The session scrubber (Story 08 / F13.11) allows jumping to any point.
+**Expected behavior**: Events are loaded in pages of 50, using a cursor-based pagination. The timeline is rendered with a virtualized list (`FlashList`) that only keeps ~20 items in memory at a time. Scrolling is smooth at 60fps. A "Jump to latest" button appears when the user is scrolled up. The session scrubber (Story 02 / F13.11) allows jumping to any point.
 
 ---
 

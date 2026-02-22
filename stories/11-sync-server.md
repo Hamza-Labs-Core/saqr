@@ -1,4 +1,4 @@
-# Story 17: Sync Server (Cloudflare Edge)
+# Story 11: Sync Server (Cloudflare Edge)
 
 ## Overview
 

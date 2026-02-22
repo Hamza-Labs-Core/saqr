@@ -1,21 +1,21 @@
-# Implementation Plan: Story 17 -- Sync Server (Cloudflare Edge)
+# Implementation Plan: Story 11 -- Sync Server (Cloudflare Edge)
 
 **Date**: 2026-02-22
 **Story**: 17-sync-server
 **Status**: Planning
 **Estimated Total Effort**: ~14 days (56-70 hours)
-**Prerequisites**: Platform evaluation completed (`docs/PLATFORM-EVALUATION.md`). Story 10 (Security & Encryption) design finalized for client-side encryption contract. Cloudflare account with Workers Paid plan ($5/mo base).
+**Prerequisites**: Platform evaluation completed (`docs/PLATFORM-EVALUATION.md`). Story 04 (Security & Encryption) design finalized for client-side encryption contract. Cloudflare account with Workers Paid plan ($5/mo base).
 **Architecture**: Cloudflare Workers + Durable Objects (DO-only, no WfP). See `docs/PLATFORM-EVALUATION.md` for decision rationale.
 
 ### Relationship to Other Stories
 
 This is the **cloud infrastructure story**. It provides the server-side sync layer that client-side stories push to and pull from.
 
-- **Story 10** (Security & Encryption): Defines client-side XChaCha20-Poly1305 encryption. The sync server never decrypts -- it stores opaque blobs. The encryption contract (blob format, SHA-256 integrity, base64 encoding) is consumed by Tasks 3 and 5.
-- **Story 18** (Sync Client): The CLI client that pushes/pulls events to/from this server. Depends on all API endpoints defined here.
+- **Story 04** (Security & Encryption): Defines client-side XChaCha20-Poly1305 encryption. The sync server never decrypts -- it stores opaque blobs. The encryption contract (blob format, SHA-256 integrity, base64 encoding) is consumed by Tasks 3 and 5.
+- **Story 12** (Sync Client): The CLI client that pushes/pulls events to/from this server. Depends on all API endpoints defined here.
 - **Story 00** (Installation): The local installation story. Independent -- sync server is a separate Cloudflare deployment, not installed locally.
 - **Stories 01-05** (Event Capture, Hooks, Storage, Projections, Context Recovery): Local event pipeline. The sync server mirrors these events to the cloud in encrypted form.
-- **Story 13** (CLI Session Rendering / Mobile App): Consumes sync API for cross-device access.
+- **Story 07** (CLI Session Rendering / Mobile App): Consumes sync API for cross-device access.
 
 ### Amendment Impacts on This Plan
 
@@ -145,7 +145,7 @@ Initialize the Cloudflare Workers project with wrangler, TypeScript configuratio
 
 **`wrangler.toml`:**
 
-As specified in Story 17, Section 1 (Worker API Layer). Key points:
+As specified in Story 11, Section 1 (Worker API Layer). Key points:
 - `name = "agentctx-sync"`
 - `main = "src/worker.ts"`
 - `compatibility_date = "2026-02-01"` with `nodejs_compat` flag
@@ -193,7 +193,7 @@ npm install libsodium-wrappers-sumo
 - [ ] `npm install` completes without errors
 - [ ] `npx tsc --noEmit` passes (once placeholder files exist)
 - [ ] `npx wrangler dev` starts the local development server (once worker.ts exists)
-- [ ] `wrangler.toml` matches the Story 17 specification exactly
+- [ ] `wrangler.toml` matches the Story 11 specification exactly
 - [ ] All tier limit vars are defined in `[vars]` with correct byte values
 - [ ] R2 bucket bindings include EU jurisdiction variant
 - [ ] DO migration tag `v1` declares `new_sqlite_classes`
@@ -216,13 +216,13 @@ Define all TypeScript interfaces, type aliases, and utility functions used acros
 **Prerequisites/Inputs**
 
 - Task 1 (project scaffolding complete)
-- Story 17 "Technical Specifications" section (type definitions)
+- Story 11 "Technical Specifications" section (type definitions)
 
 **Implementation Details**
 
 **File: `sync-server/src/types.ts`**
 
-Contains all request/response interfaces and internal row types exactly as specified in Story 17's "Type Definitions" section:
+Contains all request/response interfaces and internal row types exactly as specified in Story 11's "Type Definitions" section:
 
 - `RegisterRequest`, `LoginRequest`, `RegisterMachineRequest`
 - `PushRequest`, `PushEvent`, `PullRequest`, `DeleteAccountRequest`, `UpdateAccountRequest`
@@ -237,7 +237,7 @@ Contains all request/response interfaces and internal row types exactly as speci
 
 **File: `sync-server/src/helpers.ts`**
 
-All helper functions from Story 17's "Helper Functions" section:
+All helper functions from Story 11's "Helper Functions" section:
 
 ```typescript
 export function generateId(length?: number): string;
@@ -303,7 +303,7 @@ Implement the Worker's `fetch` handler that serves as the API gateway. It routes
 **Prerequisites/Inputs**
 
 - Task 2 (types and helpers)
-- Story 17, Section 1 (Worker API Layer) -- middleware chain specification
+- Story 11, Section 1 (Worker API Layer) -- middleware chain specification
 - Platform Evaluation, Section 6 (Auth & Rate Limiting) -- rate limiting binding
 
 **Implementation Details**
@@ -449,7 +449,7 @@ Implement the four public authentication endpoints that handle user registration
 
 - Task 2 (types and helpers)
 - Task 3 (worker entry point calls these handlers)
-- Story 17, Section 8 (Account Management) -- registration/auth flows
+- Story 11, Section 8 (Account Management) -- registration/auth flows
 - Platform Evaluation, Section 4.3 (Argon2id via libsodium)
 - `libsodium-wrappers-sumo` npm package for Argon2id
 
@@ -571,7 +571,7 @@ Implement the `UserDurableObject` class with SQLite schema initialization, reque
 - Task 1 (project scaffolding)
 - Task 2 (types)
 - Task 3 (worker routes requests to DO)
-- Story 17, Section 2 (Per-User Durable Object) -- schema, routing, alarm
+- Story 11, Section 2 (Per-User Durable Object) -- schema, routing, alarm
 
 **Implementation Details**
 
@@ -594,7 +594,7 @@ export class UserDurableObject extends DurableObject<Env> {
     // CREATE TABLE IF NOT EXISTS for all 6 tables:
     // machines, events_meta, sync_cursors, usage_daily, account, deletion_log
     // Plus all indexes (CREATE INDEX IF NOT EXISTS)
-    // Exactly as specified in Story 17, Section 2
+    // Exactly as specified in Story 11, Section 2
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -637,7 +637,7 @@ export class UserDurableObject extends DurableObject<Env> {
 }
 ```
 
-**SQLite schema** -- 6 tables with indexes, exactly as specified in Story 17 Section 2:
+**SQLite schema** -- 6 tables with indexes, exactly as specified in Story 11 Section 2:
 
 1. `machines` -- registered devices (machine_id PK, name, os, arch, hostname, timestamps, is_active)
 2. `events_meta` -- cleartext event metadata (auto-increment id, machine_id, project_id, session_id, sequence, event_type, timestamp, encrypted_blob_key, sha256, size, tokens, model, tool, synced_at; UNIQUE on machine+project+session+sequence)
@@ -664,7 +664,7 @@ These internal endpoints are not in the public API table. The Worker never expos
 
 - [ ] DO creates all 6 SQLite tables on first instantiation
 - [ ] Schema is idempotent (`CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS`)
-- [ ] All indexes from Story 17 are created
+- [ ] All indexes from Story 11 are created
 - [ ] `fetch()` routes to correct handler based on URL path and HTTP method
 - [ ] `X-Auth-Context` header is parsed correctly
 - [ ] Internal endpoints are accessible from Worker but not from external clients
@@ -695,7 +695,7 @@ Implement the `handlePush` method on the Durable Object. This accepts encrypted 
 
 - Task 5 (DO core with schema and routing)
 - Task 12 (tier enforcement for storage quota check)
-- Story 17, Section 2 (push handler code), Section 3 (R2 blob storage)
+- Story 11, Section 2 (push handler code), Section 3 (R2 blob storage)
 - Platform Evaluation, Section 2.2 (DO 2MB row limit)
 
 **Implementation Details**
@@ -917,7 +917,7 @@ Implement the `handlePull` method on the Durable Object. This returns events fro
 
 - Task 5 (DO core)
 - Task 6 (push handler -- events must exist to pull)
-- Story 17, Sections 2 and 5 (pull handler, sync cursors)
+- Story 11, Sections 2 and 5 (pull handler, sync cursors)
 
 **Implementation Details**
 
@@ -1090,7 +1090,7 @@ Implement real-time WebSocket notifications using the Durable Object's WebSocket
 
 - Task 5 (DO core with WebSocket handlers)
 - Task 6 (push handler triggers notifications)
-- Story 17, Section 6 (WebSocket Notifications) -- message protocol
+- Story 11, Section 6 (WebSocket Notifications) -- message protocol
 - Platform Evaluation, Section 2.1 (WebSocket Hibernation)
 
 **Implementation Details**
@@ -1264,7 +1264,7 @@ Implement machine registration, listing, and deactivation endpoints in the Durab
 
 - Task 5 (DO core with schema)
 - Task 12 (tier limits for machine count)
-- Story 17, Section 4 (Machine Registry)
+- Story 11, Section 4 (Machine Registry)
 
 **Implementation Details**
 
@@ -1368,7 +1368,7 @@ Implement the usage statistics endpoint that returns per-day, per-project, and p
 
 - Task 5 (DO core with `usage_daily` table)
 - Task 6 (push handler writes usage data)
-- Story 17, Section 7 (Usage Aggregation)
+- Story 11, Section 7 (Usage Aggregation)
 
 **Implementation Details**
 
@@ -1490,7 +1490,7 @@ Implement account retrieval, update, and settings endpoints in the Durable Objec
 
 - Task 4 (auth handlers create accounts)
 - Task 5 (DO core with account table)
-- Story 17, Section 8 (Account Management)
+- Story 11, Section 8 (Account Management)
 
 **Implementation Details**
 
@@ -1626,7 +1626,7 @@ Implement the centralized tier limits configuration and quota-checking functions
 **Prerequisites/Inputs**
 
 - Task 2 (TierLimits type definition)
-- Story 17, Section 11 (Tier Enforcement)
+- Story 11, Section 11 (Tier Enforcement)
 - Platform Evaluation, Section 7 (Service Tiers)
 
 **Implementation Details**
@@ -1763,7 +1763,7 @@ Implement the `DELETE /api/account` endpoint that performs full account deletion
 - Task 5 (DO core with deletion_log table)
 - Task 6 (events and blobs to delete)
 - Task 9 (machines to clear)
-- Story 17, Section 9 (Crypto-Shredding)
+- Story 11, Section 9 (Crypto-Shredding)
 
 **Implementation Details**
 
@@ -1959,7 +1959,7 @@ Implement EU-jurisdiction routing for users who select `jurisdiction: "eu"` at r
 - Task 3 (worker routes to correct DO namespace)
 - Task 4 (registration stores jurisdiction)
 - Task 5 (DO core)
-- Story 17, Section 10 (EU Data Residency)
+- Story 11, Section 10 (EU Data Residency)
 - Platform Evaluation, Section 5.3 (DO jurisdiction hints)
 
 **Implementation Details**
@@ -2057,7 +2057,7 @@ Build a minimal static web portal for account management. No JavaScript framewor
 **Prerequisites/Inputs**
 
 - Tasks 4, 9, 10, 11 (API endpoints the portal consumes)
-- Story 17, Section 12 (Web Portal)
+- Story 11, Section 12 (Web Portal)
 
 **Implementation Details**
 
@@ -2142,7 +2142,7 @@ For simplicity, option 1 is used initially. The portal HTML/CSS/JS is small enou
 
 **JWT storage**: stored in `localStorage` (not HttpOnly cookie, since the portal makes API calls from JavaScript). Refresh token stored separately. Auto-refresh on 401 response.
 
-**Note on the Story 17 spec**: The story specifies HttpOnly cookie for JWT storage. However, since the portal makes client-side `fetch()` calls to the API, HttpOnly cookies are actually the correct approach (automatically sent with requests). The portal should use:
+**Note on the Story 11 spec**: The story specifies HttpOnly cookie for JWT storage. However, since the portal makes client-side `fetch()` calls to the API, HttpOnly cookies are actually the correct approach (automatically sent with requests). The portal should use:
 - Login response sets `Set-Cookie: token=...; HttpOnly; Secure; SameSite=Strict; Path=/api`
 - API calls use `credentials: "same-origin"` to include cookies
 - Refresh is handled server-side via cookie
@@ -2177,12 +2177,12 @@ For simplicity, option 1 is used initially. The portal HTML/CSS/JS is small enou
 
 **Description**
 
-Implement the complete test suite specified in Story 17's Testing Plan. Unit tests use Vitest directly. Integration tests use Miniflare to simulate the Workers runtime. E2E tests perform full lifecycle sequences.
+Implement the complete test suite specified in Story 11's Testing Plan. Unit tests use Vitest directly. Integration tests use Miniflare to simulate the Workers runtime. E2E tests perform full lifecycle sequences.
 
 **Prerequisites/Inputs**
 
 - All previous tasks (the test suite covers everything)
-- Story 17, Testing Plan (T-1 through T-45)
+- Story 11, Testing Plan (T-1 through T-45)
 - `vitest` + `miniflare` + `@cloudflare/vitest-pool-workers`
 
 **Implementation Details**

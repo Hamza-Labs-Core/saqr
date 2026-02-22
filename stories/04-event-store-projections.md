@@ -1,4 +1,4 @@
-# Story 10: Event Store & Projections (Enhanced) — Daemon Integration
+# Story 04: Event Store & Projections (Enhanced) — Daemon Integration
 
 ## Overview
 

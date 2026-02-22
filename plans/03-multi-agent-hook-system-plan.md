@@ -1,4 +1,4 @@
-# Implementation Plan: Story 09 -- Multi-Agent Hook System
+# Implementation Plan: Story 03 -- Multi-Agent Hook System
 
 **Date**: 2026-02-22
 **Story**: 09-multi-agent-hook-system
@@ -18,9 +18,9 @@ This story **generalizes** the existing single-agent hook system (Stories 01-02)
 - **Story 03** (Storage Layer): The event store directory structure (`~/.claude-context/events/{project-id}/{session-id}/`) is reused. A new `~/.agentctx/` directory tree is created for the daemon, integrations, and custom hooks.
 - **Story 04** (Projection Engine): Existing projections consume unified events without modification (backward-compatible envelope).
 - **Story 06** (Plugin Packaging): The packaging framework from Story 06 is extended for the `agentctx` CLI distribution.
-- **Story 10** (Event Store & Projections -- enhanced): Downstream consumer. No changes required from this story.
-- **Story 11** (Agent Process Orchestration): Depends on this story's unified event types and hook infrastructure. The daemon event intake API defined here is used by the orchestration layer.
-- **Story 12** (Local Dashboard): Downstream consumer of multi-agent events. Benefits from `agent_provider` field for filtering.
+- **Story 04** (Event Store & Projections -- enhanced): Downstream consumer. No changes required from this story.
+- **Story 05** (Agent Process Orchestration): Depends on this story's unified event types and hook infrastructure. The daemon event intake API defined here is used by the orchestration layer.
+- **Story 06** (Local Dashboard): Downstream consumer of multi-agent events. Benefits from `agent_provider` field for filtering.
 
 ### Amendment Impacts on This Plan
 
@@ -79,7 +79,7 @@ The unified event envelope extends the existing Story 01 envelope (7 fields) wit
 **Prerequisites/Inputs**
 
 - Story 01 event envelope format (7 fields: event_id, event_type, project_id, session_id, sequence, timestamp, data)
-- Story 09 requirements Section 1 (Unified Event Type System)
+- Story 03 requirements Section 1 (Unified Event Type System)
 
 **Implementation Details**
 
@@ -732,8 +732,8 @@ Implement the Claude Code hook installer that registers all 10 `agentctx-hook` c
 - Task 2 (`agentctx-hook` wrapper must exist)
 - Task 4 (CLI scaffolding for subcommand routing)
 - Existing `gc-install-hooks` (`/home/meywd/GlobalContext/src/gc-install-hooks`) as reference
-- Story 09 requirement Section 2 (Claude Code Hook Integration)
-- Story 09 requirement Section 5.3 (Claude Code Installer Steps)
+- Story 03 requirement Section 2 (Claude Code Hook Integration)
+- Story 03 requirement Section 5.3 (Claude Code Installer Steps)
 
 **Implementation Details**
 
@@ -1007,7 +1007,7 @@ Create the OpenCode plugin that integrates with OpenCode's plugin system to capt
 
 - Task 1 (unified event types for mapping)
 - Task 4 (CLI scaffolding)
-- Story 09 requirement Section 3 (OpenCode Hook Integration)
+- Story 03 requirement Section 3 (OpenCode Hook Integration)
 
 **Implementation Details**
 
@@ -1021,7 +1021,7 @@ Files to create:
 | `src/lib/agentctx_opencode.sh` | Create | OpenCode-specific install/detect/validate functions |
 | `tests/bin/test_agentctx_install_opencode.sh` | Create | OpenCode installer tests |
 
-The plugin files (`plugin.json`, `index.ts`, `event-handler.ts`) follow the exact specifications from Story 09 Section 3.2-3.4. Key implementation details:
+The plugin files (`plugin.json`, `index.ts`, `event-handler.ts`) follow the exact specifications from Story 03 Section 3.2-3.4. Key implementation details:
 
 `src/lib/agentctx_opencode.sh`:
 
@@ -1149,7 +1149,7 @@ This task creates the watcher configuration and the watcher module itself. The w
 
 - Task 1 (unified event types for mapping)
 - Task 4 (CLI scaffolding and config management)
-- Story 09 requirement Section 4 (Codex Hook Integration)
+- Story 03 requirement Section 4 (Codex Hook Integration)
 
 **Implementation Details**
 
@@ -1403,7 +1403,7 @@ Implement the custom hook extension protocol that allows users to integrate futu
 
 - Task 1 (event type validation for custom hook output)
 - Task 4 (CLI scaffolding)
-- Story 09 requirement Section 8 (Custom Hook Extensions)
+- Story 03 requirement Section 8 (Custom Hook Extensions)
 
 **Implementation Details**
 
@@ -1654,7 +1654,7 @@ Implement the `agentctx doctor` command that validates all installed hook integr
 - Task 6 (OpenCode plugin to validate)
 - Task 7 (Codex watcher to validate)
 - Task 8 (Custom hooks to validate)
-- Story 09 requirement Section 6 (Hook Health Check)
+- Story 03 requirement Section 6 (Hook Health Check)
 
 **Implementation Details**
 
@@ -1729,7 +1729,7 @@ agentctx_doctor() {
 
 `src/lib/agentctx_health.sh`:
 
-Key health check functions for each integration (as specified in Story 09 Section 6.3). The Claude Code check includes:
+Key health check functions for each integration (as specified in Story 03 Section 6.3). The Claude Code check includes:
 1. `settings.json` exists
 2. All 10 hooks present
 3. `agentctx-hook` is executable
@@ -1909,7 +1909,7 @@ Implement the hot-reload system that watches hook configuration files for change
 - Task 5 (Claude Code hooks to watch/validate)
 - Task 6 (OpenCode plugin config to watch)
 - Task 7 (Codex watcher config to watch)
-- Story 09 requirement Section 7 (Hot-Reload Hooks)
+- Story 03 requirement Section 7 (Hot-Reload Hooks)
 
 **Implementation Details**
 
@@ -1923,7 +1923,7 @@ Files to create:
 
 `src/daemon/config-watcher.mjs`:
 
-The implementation follows Story 09 Section 7.2 exactly:
+The implementation follows Story 03 Section 7.2 exactly:
 
 ```javascript
 import { watch } from 'fs';

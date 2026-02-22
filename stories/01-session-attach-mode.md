@@ -1,4 +1,4 @@
-# Story 07: Session Attach Mode (Hybrid)
+# Story 01: Session Attach Mode (Hybrid)
 
 ## Overview
 
@@ -33,7 +33,7 @@ This is one of the most complex stories in the AgentContext product because it s
 
 ### Out of Scope (Non-Goals)
 
-- Mobile app UI rendering of session data (Story 13 / F13)
+- Mobile app UI rendering of session data (Story 07 / F13)
 - Desktop app Tauri integration (F7)
 - Encrypted sync of session data (F5)
 - GitHub integration or worktree management (F8)

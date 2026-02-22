@@ -1,4 +1,4 @@
-# Implementation Plan: Story 10 -- Event Store & Projections (Enhanced) -- Daemon Integration
+# Implementation Plan: Story 04 -- Event Store & Projections (Enhanced) -- Daemon Integration
 
 **Date**: 2026-02-22
 **Story**: 10-event-store-projections
@@ -2353,7 +2353,7 @@ Create a comprehensive integration test suite that validates the full event pipe
 | `tests/daemon/search-index.test.ts` | Inverted index unit tests |
 | `tests/daemon/projection-cache.test.ts` | Cache unit tests |
 | `tests/daemon/event-watcher.test.ts` | Filesystem watcher tests |
-| `tests/10-all.sh` | Runner for all Story 10 tests |
+| `tests/10-all.sh` | Runner for all Story 04 tests |
 
 **Key test cases (from story testing plan):**
 
