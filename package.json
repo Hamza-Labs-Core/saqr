@@ -1,0 +1,20 @@
+{
+  "name": "saqr",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent management platform — orchestrate, observe, and control AI coding agents from anywhere",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.18.2",
+  "scripts": {
+    "build": "pnpm -r --filter='./packages/*' run build",
+    "test": "pnpm -r --filter='./packages/*' run test",
+    "test:unit": "pnpm -r --filter='./packages/*' run test:unit",
+    "lint": "pnpm -r --filter='./packages/*' run lint",
+    "typecheck": "pnpm -r --filter='./packages/*' run typecheck",
+    "clean": "pnpm -r --filter='./packages/*' run clean"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@saqr/cli",
+  "version": "0.1.0",
+  "description": "CLI tool for the Saqr multi-agent hook system",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "saqr": "dist/bin/saqr.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:watch": "vitest watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@saqr/shared": "workspace:*",
+    "@saqr/daemon": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

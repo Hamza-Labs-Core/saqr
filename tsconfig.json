@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "composite": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/daemon" },
+    { "path": "packages/cli" },
+    { "path": "packages/sync-client" },
+    { "path": "packages/sync-server" },
+    { "path": "packages/github" }
+  ]
+}
