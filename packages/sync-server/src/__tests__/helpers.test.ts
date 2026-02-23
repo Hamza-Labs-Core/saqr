@@ -24,6 +24,10 @@ import {
   currentMinuteKey,
   secondsUntilNextMinute,
   withSecurityHeaders,
+  withCorsHeaders,
+  handleCorsPreFlight,
+  parseAllowedOrigins,
+  isOriginAllowed,
 } from '../helpers.js';
 import { createMockEnv } from './helpers/mock-env.js';
 
@@ -283,6 +287,153 @@ describe('Helpers', () => {
       expect(limits.storageBytes).toBe(5368709120);
       expect(limits.retentionDays).toBe(0); // unlimited
       expect(limits.ratePerMin).toBe(6000);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // CORS
+  // -----------------------------------------------------------------------
+
+  describe('parseAllowedOrigins', () => {
+    it('should return empty set when ALLOWED_ORIGINS is empty', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: '' });
+      expect(parseAllowedOrigins(env).size).toBe(0);
+    });
+
+    it('should parse comma-separated origins', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: 'https://app.saqr.dev,https://admin.saqr.dev' });
+      const origins = parseAllowedOrigins(env);
+      expect(origins.size).toBe(2);
+      expect(origins.has('https://app.saqr.dev')).toBe(true);
+      expect(origins.has('https://admin.saqr.dev')).toBe(true);
+    });
+
+    it('should trim whitespace around origins', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: ' https://a.dev , https://b.dev ' });
+      const origins = parseAllowedOrigins(env);
+      expect(origins.has('https://a.dev')).toBe(true);
+      expect(origins.has('https://b.dev')).toBe(true);
+    });
+  });
+
+  describe('isOriginAllowed', () => {
+    it('should return null for null origin', () => {
+      const allowed = new Set(['https://app.saqr.dev']);
+      expect(isOriginAllowed(null, allowed)).toBeNull();
+    });
+
+    it('should return null when origin is not in list', () => {
+      const allowed = new Set(['https://app.saqr.dev']);
+      expect(isOriginAllowed('https://evil.com', allowed)).toBeNull();
+    });
+
+    it('should return origin when it is in the list', () => {
+      const allowed = new Set(['https://app.saqr.dev']);
+      expect(isOriginAllowed('https://app.saqr.dev', allowed)).toBe('https://app.saqr.dev');
+    });
+
+    it('should return null when allowed list is empty', () => {
+      expect(isOriginAllowed('https://anything.com', new Set())).toBeNull();
+    });
+  });
+
+  describe('withCorsHeaders', () => {
+    it('should set Allow-Origin and Allow-Credentials for allowed origin', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: 'https://app.saqr.dev' });
+      const original = new Response('test');
+      const response = withCorsHeaders(original, 'https://app.saqr.dev', env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.saqr.dev');
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    });
+
+    it('should NOT set Allow-Origin or Allow-Credentials for disallowed origin', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: 'https://app.saqr.dev' });
+      const original = new Response('test');
+      const response = withCorsHeaders(original, 'https://evil.com', env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBeNull();
+    });
+
+    it('should NOT set Allow-Origin when ALLOWED_ORIGINS is empty (deny all)', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: '' });
+      const original = new Response('test');
+      const response = withCorsHeaders(original, 'https://anything.com', env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBeNull();
+    });
+
+    it('should not reflect origin when no ALLOWED_ORIGINS configured even with real origin', () => {
+      // When no origins are configured, no CORS origin or credentials should be sent
+      const env = createMockEnv({ ALLOWED_ORIGINS: '' });
+      const original = new Response('test');
+      const response = withCorsHeaders(original, 'https://real-site.com', env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBeNull();
+    });
+
+    it('should only reflect the specific matching origin, never a wildcard', () => {
+      // With specific origins configured, only the matching one is reflected
+      const env = createMockEnv({ ALLOWED_ORIGINS: 'https://app.saqr.dev,https://admin.saqr.dev' });
+      const original = new Response('test');
+      const response = withCorsHeaders(original, 'https://app.saqr.dev', env);
+
+      // Should reflect the exact origin, not '*'
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.saqr.dev');
+      expect(response.headers.get('Access-Control-Allow-Origin')).not.toBe('*');
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    });
+
+    it('should always set method and header allow headers', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: '' });
+      const original = new Response('test');
+      const response = withCorsHeaders(original, 'https://evil.com', env);
+
+      expect(response.headers.get('Access-Control-Allow-Methods')).toBeDefined();
+      expect(response.headers.get('Access-Control-Allow-Headers')).toBeDefined();
+    });
+  });
+
+  describe('handleCorsPreFlight', () => {
+    it('should return 204 with allowed origin reflected', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: 'https://app.saqr.dev' });
+      const request = new Request('https://sync.test.dev/api/health', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://app.saqr.dev' },
+      });
+      const response = handleCorsPreFlight(request, env);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.saqr.dev');
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    });
+
+    it('should NOT reflect disallowed origin in preflight', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: 'https://app.saqr.dev' });
+      const request = new Request('https://sync.test.dev/api/health', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://evil.com' },
+      });
+      const response = handleCorsPreFlight(request, env);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBeNull();
+    });
+
+    it('should deny all CORS when ALLOWED_ORIGINS is empty', () => {
+      const env = createMockEnv({ ALLOWED_ORIGINS: '' });
+      const request = new Request('https://sync.test.dev/api/health', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://app.saqr.dev' },
+      });
+      const response = handleCorsPreFlight(request, env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBeNull();
     });
   });
 });

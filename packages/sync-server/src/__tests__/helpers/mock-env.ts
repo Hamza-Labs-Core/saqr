@@ -267,6 +267,7 @@ export function createMockEnv(overrides?: Partial<Env>): Env {
     JWT_SECRET: 'test-secret-key-for-testing-only-minimum-length',
     JWT_ISSUER: 'saqr',
     JWT_AUDIENCE: 'saqr-sync',
+    ALLOWED_ORIGINS: '',
     FREE_TIER_STORAGE_BYTES: '5242880',
     PRO_TIER_STORAGE_BYTES: '524288000',
     TEAM_TIER_STORAGE_BYTES: '5368709120',

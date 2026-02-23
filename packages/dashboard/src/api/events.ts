@@ -59,6 +59,22 @@ export interface EventQuery {
 
 const EVENT_FILE_RE = /^\d{6}\.json$/;
 
+/**
+ * Regex for safe identifiers: alphanumeric, dots, hyphens, underscores.
+ * Dots are allowed because project IDs use the format "basename-hash6".
+ * Maximum 256 characters to prevent abuse.
+ */
+const SAFE_ID_RE = /^[a-zA-Z0-9._-]{1,256}$/;
+
+/**
+ * Validate that an identifier is safe for use in filesystem paths.
+ * Rejects path traversal attempts (e.g. "..", "/", "\", null bytes).
+ */
+export function isValidPathId(id: string): boolean {
+  if (!id || typeof id !== "string") return false;
+  return SAFE_ID_RE.test(id);
+}
+
 /** Strip trailing 6-char hash from project_id to get display name */
 export function projectName(projectId: string): string {
   return projectId.replace(/-[a-f0-9]{6}$/, "");
@@ -206,6 +222,9 @@ export async function listSessions(
   eventsDir: string,
   projectId: string,
 ): Promise<SessionInfo[]> {
+  if (!isValidPathId(projectId)) {
+    throw new Error("Invalid project ID");
+  }
   const pdir = path.join(eventsDir, projectId);
   const entries = await safeReaddir(pdir);
   const sessions: SessionInfo[] = [];
@@ -240,6 +259,12 @@ export async function readEvents(
   eventsDir: string,
   query: EventQuery,
 ): Promise<EventEnvelope[]> {
+  if (!isValidPathId(query.projectId)) {
+    throw new Error("Invalid project ID");
+  }
+  if (!isValidPathId(query.sessionId)) {
+    throw new Error("Invalid session ID");
+  }
   const sdir = path.join(eventsDir, query.projectId, query.sessionId);
   const entries = await safeReaddir(sdir);
   const fromSeq = query.fromSequence ?? 0;

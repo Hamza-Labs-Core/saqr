@@ -130,16 +130,16 @@ export default {
     _ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(request.url);
-    const origin = request.headers.get('Origin') || '*';
+    const origin = request.headers.get('Origin');
 
     // CORS preflight
     if (request.method === 'OPTIONS') {
-      return handleCorsPreFlight(request);
+      return handleCorsPreFlight(request, env);
     }
 
     // Helper to add CORS + security headers to all responses
     const respond = (response: Response): Response => {
-      return withSecurityHeaders(withCorsHeaders(response, origin));
+      return withSecurityHeaders(withCorsHeaders(response, origin, env));
     };
 
     // --- Health check (no auth) ---

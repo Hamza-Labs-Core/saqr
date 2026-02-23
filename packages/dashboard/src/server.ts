@@ -17,7 +17,7 @@ import http from "node:http";
 import path from "node:path";
 import os from "node:os";
 
-import { listProjects, listSessions, readEvents } from "./api/events.js";
+import { listProjects, listSessions, readEvents, isValidPathId } from "./api/events.js";
 import { getAllUsage, getProjectUsage } from "./api/usage.js";
 import { listAgents, sendPrompt, approvePermission } from "./api/agents.js";
 import type { DaemonConnection } from "./api/agents.js";
@@ -65,6 +65,45 @@ function send404(res: http.ServerResponse): void {
 
 function sendError(res: http.ServerResponse, message: string, status = 500): void {
   sendJson(res, { error: message }, status);
+}
+
+/** Maximum request body size (1 MB). */
+export const MAX_REQUEST_BODY_SIZE = 1 * 1024 * 1024;
+
+/**
+ * Read the full request body with a size limit.
+ * Rejects with a 413-style error if the body exceeds MAX_REQUEST_BODY_SIZE.
+ */
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    let size = 0;
+    let destroyed = false;
+
+    req.on("data", (chunk: Buffer | string) => {
+      if (destroyed) return;
+      const chunkStr = typeof chunk === "string" ? chunk : chunk.toString();
+      size += Buffer.byteLength(chunkStr);
+      if (size > MAX_REQUEST_BODY_SIZE) {
+        destroyed = true;
+        req.removeAllListeners("data");
+        req.removeAllListeners("end");
+        // Resume to drain remaining data so the socket stays usable for the response
+        req.resume();
+        reject(Object.assign(new Error("Request body too large"), { statusCode: 413 }));
+        return;
+      }
+      body += chunkStr;
+    });
+
+    req.on("end", () => {
+      if (!destroyed) resolve(body);
+    });
+
+    req.on("error", (err) => {
+      if (!destroyed) reject(err);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +154,7 @@ export function createDashboardServer(config: DashboardConfig): http.Server {
       if (pathname === "/api/sessions") {
         const projectId = url.searchParams.get("project");
         if (!projectId) return sendError(res, "project param required", 400);
+        if (!isValidPathId(projectId)) return sendError(res, "invalid project ID", 400);
         const sessions = await listSessions(eventsDir, projectId);
         return sendJson(res, sessions);
       }
@@ -125,6 +165,8 @@ export function createDashboardServer(config: DashboardConfig): http.Server {
         if (!projectId || !sessionId) {
           return sendError(res, "project and session params required", 400);
         }
+        if (!isValidPathId(projectId)) return sendError(res, "invalid project ID", 400);
+        if (!isValidPathId(sessionId)) return sendError(res, "invalid session ID", 400);
         const from = parseInt(url.searchParams.get("from") || "0", 10);
         const limit = url.searchParams.get("limit")
           ? parseInt(url.searchParams.get("limit")!, 10)
@@ -147,6 +189,7 @@ export function createDashboardServer(config: DashboardConfig): http.Server {
       if (pathname === "/api/usage") {
         const projectId = url.searchParams.get("project");
         if (projectId) {
+          if (!isValidPathId(projectId)) return sendError(res, "invalid project ID", 400);
           const usage = await getProjectUsage(eventsDir, projectId);
           if (!usage) return sendError(res, "project not found or no transcript data", 404);
           return sendJson(res, usage);
@@ -165,13 +208,15 @@ export function createDashboardServer(config: DashboardConfig): http.Server {
       // POST /api/agents/:id/prompt
       const promptMatch = pathname.match(/^\/api\/agents\/([^/]+)\/prompt$/);
       if (promptMatch && req.method === "POST") {
-        let body = "";
-        for await (const chunk of req) body += chunk;
         try {
+          const body = await readBody(req);
           const { prompt } = JSON.parse(body);
           const result = await sendPrompt(daemonConn, promptMatch[1], prompt);
           return sendJson(res, result, result.success ? 200 : 500);
-        } catch {
+        } catch (err) {
+          if ((err as any)?.statusCode === 413) {
+            return sendError(res, "Request body too large", 413);
+          }
           return sendError(res, "Invalid JSON body", 400);
         }
       }
@@ -192,6 +237,8 @@ export function createDashboardServer(config: DashboardConfig): http.Server {
         if (!projectId || !sessionId) {
           return sendError(res, "project and session params required", 400);
         }
+        if (!isValidPathId(projectId)) return sendError(res, "invalid project ID", 400);
+        if (!isValidPathId(sessionId)) return sendError(res, "invalid session ID", 400);
         const from = parseInt(url.searchParams.get("from") || "0", 10);
         sseManager.addClient(req, res, projectId, sessionId, from);
         return;

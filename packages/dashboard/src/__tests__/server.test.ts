@@ -15,7 +15,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import http from "node:http";
-import { createDashboardServer } from "../server.js";
+import { createDashboardServer, MAX_REQUEST_BODY_SIZE } from "../server.js";
 import type { DashboardConfig } from "../server.js";
 
 // ---------------------------------------------------------------------------
@@ -343,5 +343,137 @@ describe("CORS", () => {
   it("handles OPTIONS preflight", async () => {
     const res = await fetch("/api/health", { method: "OPTIONS" });
     expect(res.status).toBe(204);
+  });
+});
+
+describe("POST body size limit", () => {
+  it("returns 413 when request body exceeds 1 MB", async () => {
+    // Build a body that is just over the 1 MB limit
+    const oversizedBody = "x".repeat(MAX_REQUEST_BODY_SIZE + 1);
+
+    const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/api/agents/test-agent/prompt",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+        (res) => {
+          let body = "";
+          res.on("data", (chunk: string) => {
+            body += chunk;
+          });
+          res.on("end", () => {
+            resolve({ status: res.statusCode || 0, body });
+          });
+        },
+      );
+      req.on("error", reject);
+      req.setTimeout(5000, () => {
+        req.destroy();
+        reject(new Error("Timeout"));
+      });
+      req.write(oversizedBody);
+      req.end();
+    });
+
+    expect(res.status).toBe(413);
+    const data = JSON.parse(res.body);
+    expect(data.error).toMatch(/too large/i);
+  });
+
+  it("accepts request bodies under 1 MB", async () => {
+    // A small valid JSON body should not trigger the limit
+    const smallBody = JSON.stringify({ prompt: "hello" });
+    const res = await fetch("/api/agents/test-agent/prompt", {
+      method: "POST",
+      body: smallBody,
+    });
+    // Will likely get 500 since no daemon is running, but NOT 413
+    expect(res.status).not.toBe(413);
+  });
+});
+
+describe("Path traversal protection", () => {
+  it("rejects project ID with '..' in /api/sessions", async () => {
+    const res = await fetch("/api/sessions?project=../../etc");
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
+  });
+
+  it("rejects project ID with '/' in /api/sessions", async () => {
+    const res = await fetch("/api/sessions?project=foo/bar");
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
+  });
+
+  it("rejects project ID with backslash in /api/sessions", async () => {
+    const res = await fetch(
+      "/api/sessions?project=" + encodeURIComponent("foo\\bar"),
+    );
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
+  });
+
+  it("rejects project ID with null byte in /api/sessions", async () => {
+    const res = await fetch(
+      "/api/sessions?project=" + encodeURIComponent("foo\x00bar"),
+    );
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
+  });
+
+  it("rejects session ID with '..' in /api/events", async () => {
+    const res = await fetch(
+      "/api/events?project=test-proj-aaa111&session=../../etc/passwd",
+    );
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid session/i);
+  });
+
+  it("rejects project ID with '..' in /api/events", async () => {
+    const res = await fetch(
+      "/api/events?project=../../../etc&session=sess-test-001",
+    );
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
+  });
+
+  it("allows valid project IDs with dots and hyphens", async () => {
+    // Valid format: basename-hash6 (e.g., "my-project.v2-abc123")
+    const res = await fetch("/api/sessions?project=my-project.v2-abc123");
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects overly long project IDs (> 256 chars)", async () => {
+    const longId = "a".repeat(257);
+    const res = await fetch("/api/sessions?project=" + longId);
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
+  });
+
+  it("rejects traversal in /api/usage project param", async () => {
+    const res = await fetch("/api/usage?project=../../etc");
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
+  });
+
+  it("rejects traversal in /sse endpoint", async () => {
+    const res = await fetch(
+      "/sse?project=../../etc&session=sess-test-001",
+    );
+    expect(res.status).toBe(400);
+    const data = json(res.body) as any;
+    expect(data.error).toMatch(/invalid project/i);
   });
 });

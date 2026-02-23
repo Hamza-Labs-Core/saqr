@@ -30,6 +30,9 @@ export interface DaemonConnection {
 // Implementation
 // ---------------------------------------------------------------------------
 
+/** Maximum response size from daemon (10 MB). */
+export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
+
 /**
  * Make an HTTP request to the daemon.
  */
@@ -53,7 +56,15 @@ async function daemonRequest(
 
     const req = http.request(options, (res) => {
       let data = "";
-      res.on("data", (chunk: string) => {
+      let size = 0;
+      res.on("data", (chunk: Buffer | string) => {
+        const chunkLen = typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+        size += chunkLen;
+        if (size > MAX_RESPONSE_SIZE) {
+          res.destroy();
+          reject(new Error("Daemon response exceeded 10 MB limit"));
+          return;
+        }
         data += chunk;
       });
       res.on("end", () => {

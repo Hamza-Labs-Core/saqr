@@ -250,6 +250,7 @@ export class PermissionQueue {
     if (!request || request.status !== "pending") return;
 
     request.status = "timed_out";
+    request.resolvedBy = "timeout";
     this.timers.delete(permissionId);
 
     // Emit "timed_out" event
@@ -258,14 +259,11 @@ export class PermissionQueue {
       request: { ...request },
     });
 
-    // Resolve or reject the enqueue promise
+    // Safety: always deny on timeout regardless of timeoutAction config.
+    // Auto-allowing unattended permission requests is dangerous.
     const resolver = this.resolvers.get(permissionId);
     if (resolver) {
-      if (this.timeoutAction === "allow") {
-        resolver.resolve("allow");
-      } else {
-        resolver.resolve("deny");
-      }
+      resolver.resolve("deny");
       this.resolvers.delete(permissionId);
     }
   }

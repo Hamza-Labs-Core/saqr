@@ -167,6 +167,116 @@ describe('UserSyncDO', () => {
       expect(body.error).toBe('unknown_machine');
     });
 
+    it('should reject push with path-traversal machine_id', async () => {
+      const DO = createDO();
+      const pushBody: PushRequest = {
+        machine_id: '../../../etc/passwd',
+        events: [],
+        blobs: {},
+      };
+
+      const request = createRequest('POST', '/api/sync/push', pushBody, authHeaders());
+      const response = await DO.fetch(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error).toBe('invalid_machine_id');
+    });
+
+    it('should reject push with path-traversal project_id', async () => {
+      const DO = createDO();
+      const pushBody: PushRequest = {
+        machine_id: 'mach_test01',
+        events: [
+          {
+            project_id: '../../etc/passwd',
+            session_id: 'sess_123',
+            sequence: 1,
+            timestamp: '2026-02-22T10:00:00.000Z',
+            event_type: 'UserPromptReceived',
+            encrypted_blob_sha256: 'abc123def456',
+            encrypted_size_bytes: 1024,
+          },
+        ],
+        blobs: { abc123def456: btoa('data') },
+      };
+
+      const request = createRequest('POST', '/api/sync/push', pushBody, authHeaders());
+      const response = await DO.fetch(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error).toBe('invalid_project_id');
+    });
+
+    it('should reject push with path-traversal session_id', async () => {
+      const DO = createDO();
+      const pushBody: PushRequest = {
+        machine_id: 'mach_test01',
+        events: [
+          {
+            project_id: 'proj_abc',
+            session_id: '../../../etc/shadow',
+            sequence: 1,
+            timestamp: '2026-02-22T10:00:00.000Z',
+            event_type: 'UserPromptReceived',
+            encrypted_blob_sha256: 'abc123def456',
+            encrypted_size_bytes: 1024,
+          },
+        ],
+        blobs: { abc123def456: btoa('data') },
+      };
+
+      const request = createRequest('POST', '/api/sync/push', pushBody, authHeaders());
+      const response = await DO.fetch(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error).toBe('invalid_session_id');
+    });
+
+    it('should reject push with null bytes in machine_id', async () => {
+      const DO = createDO();
+      const pushBody: PushRequest = {
+        machine_id: 'mach\x00evil',
+        events: [],
+        blobs: {},
+      };
+
+      const request = createRequest('POST', '/api/sync/push', pushBody, authHeaders());
+      const response = await DO.fetch(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error).toBe('invalid_machine_id');
+    });
+
+    it('should reject push with overly long project_id (> 256 chars)', async () => {
+      const DO = createDO();
+      const pushBody: PushRequest = {
+        machine_id: 'mach_test01',
+        events: [
+          {
+            project_id: 'a'.repeat(257),
+            session_id: 'sess_123',
+            sequence: 1,
+            timestamp: '2026-02-22T10:00:00.000Z',
+            event_type: 'UserPromptReceived',
+            encrypted_blob_sha256: 'abc123def456',
+            encrypted_size_bytes: 1024,
+          },
+        ],
+        blobs: { abc123def456: btoa('data') },
+      };
+
+      const request = createRequest('POST', '/api/sync/push', pushBody, authHeaders());
+      const response = await DO.fetch(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error).toBe('invalid_project_id');
+    });
+
     it('should accept push request format', async () => {
       const DO = createDO();
       const pushBody: PushRequest = {

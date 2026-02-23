@@ -33,6 +33,18 @@ import {
 import { checkStorageQuota, checkDeviceLimit } from '../middleware/tier-enforcement.js';
 import { deleteAccount } from '../account/crypto-shred.js';
 
+/**
+ * Regex for safe identifiers used in storage keys.
+ * Allows alphanumeric, dots, hyphens, and underscores. Max 256 chars.
+ * Prevents path traversal via "..", "/", "\", or null bytes.
+ */
+const SAFE_ID_RE = /^[a-zA-Z0-9._-]{1,256}$/;
+
+/** Validate that an ID is safe for use in R2 keys and SQL values. */
+function isValidSyncId(id: string): boolean {
+  return typeof id === 'string' && SAFE_ID_RE.test(id);
+}
+
 export class UserSyncDO {
   private state: DurableObjectState;
   private env: Env;
@@ -250,6 +262,19 @@ export class UserSyncDO {
   private async handlePush(request: Request, authCtx: AuthContext): Promise<Response> {
     const body = await request.json() as PushRequest;
     const now = new Date().toISOString();
+
+    // 0. Validate IDs used in storage keys to prevent path traversal
+    if (!isValidSyncId(body.machine_id)) {
+      return errorResponse(400, 'invalid_machine_id', 'machine_id contains invalid characters');
+    }
+    for (const event of body.events) {
+      if (!isValidSyncId(event.project_id)) {
+        return errorResponse(400, 'invalid_project_id', 'project_id contains invalid characters');
+      }
+      if (!isValidSyncId(event.session_id)) {
+        return errorResponse(400, 'invalid_session_id', 'session_id contains invalid characters');
+      }
+    }
 
     // 1. Verify machine belongs to user
     const machineRows = this.sql.exec(

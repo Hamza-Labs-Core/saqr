@@ -249,7 +249,7 @@ describe("PermissionQueue", () => {
       shortQueue.destroy();
     });
 
-    it("respects timeoutAction: allow", async () => {
+    it("always denies on timeout even when timeoutAction is 'allow'", async () => {
       vi.useFakeTimers();
 
       const allowQueue = new PermissionQueue({
@@ -265,10 +265,39 @@ describe("PermissionQueue", () => {
       vi.advanceTimersByTime(600);
 
       const decision = await promise;
-      expect(decision).toBe("allow");
+      // Safety: timeout must always deny regardless of timeoutAction config
+      expect(decision).toBe("deny");
 
       vi.useRealTimers();
       allowQueue.destroy();
+    });
+
+    it("sets resolvedBy to 'timeout' on timeout", async () => {
+      vi.useFakeTimers();
+
+      const shortQueue = new PermissionQueue({ timeoutMs: 500 });
+      const events: PermissionEvent[] = [];
+      shortQueue.onRequest((e) => events.push(e));
+
+      shortQueue.enqueue({
+        sessionId: "s1",
+        toolName: "Write",
+        description: "test",
+      });
+
+      vi.advanceTimersByTime(600);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const timedOutEvents = events.filter((e) => e.type === "timed_out");
+      expect(timedOutEvents).toHaveLength(1);
+      expect(timedOutEvents[0].request.resolvedBy).toBe("timeout");
+
+      // Also verify via getForSession
+      const requests = shortQueue.getForSession("s1");
+      expect(requests[0].resolvedBy).toBe("timeout");
+
+      vi.useRealTimers();
+      shortQueue.destroy();
     });
 
     it("responding before timeout cancels the timer", async () => {

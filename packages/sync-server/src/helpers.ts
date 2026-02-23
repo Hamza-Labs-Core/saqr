@@ -108,16 +108,42 @@ export function errorResponse(
 // CORS
 // ---------------------------------------------------------------------------
 
-const ALLOWED_ORIGINS = ['*']; // Adjust for production
+/**
+ * Parse the ALLOWED_ORIGINS env var (comma-separated) into a Set.
+ * Returns an empty set if the value is empty or undefined (deny all CORS).
+ */
+export function parseAllowedOrigins(env: Env): Set<string> {
+  const raw = env.ALLOWED_ORIGINS;
+  if (!raw || raw.trim() === '') return new Set();
+  return new Set(
+    raw.split(',').map(o => o.trim()).filter(o => o.length > 0),
+  );
+}
 
-/** Add CORS headers to a response */
-export function withCorsHeaders(response: Response, origin?: string): Response {
+/**
+ * Check whether the given origin is in the allowed list.
+ * Returns the origin string if allowed, or null if not.
+ */
+export function isOriginAllowed(origin: string | null | undefined, allowedOrigins: Set<string>): string | null {
+  if (!origin || allowedOrigins.size === 0) return null;
+  return allowedOrigins.has(origin) ? origin : null;
+}
+
+/** Add CORS headers to a response. Only reflects the origin if it is in the allowed list. */
+export function withCorsHeaders(response: Response, origin: string | null | undefined, env: Env): Response {
+  const allowed = isOriginAllowed(origin, parseAllowedOrigins(env));
   const headers = new Headers(response.headers);
-  headers.set('Access-Control-Allow-Origin', origin || '*');
+
+  if (allowed) {
+    headers.set('Access-Control-Allow-Origin', allowed);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+  }
+  // If origin is not allowed, do not set Allow-Origin or Allow-Credentials at all.
+
   headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Machine-Id');
   headers.set('Access-Control-Max-Age', '86400');
-  headers.set('Access-Control-Allow-Credentials', 'true');
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -125,19 +151,23 @@ export function withCorsHeaders(response: Response, origin?: string): Response {
   });
 }
 
-/** Handle CORS preflight */
-export function handleCorsPreFlight(request: Request): Response {
-  const origin = request.headers.get('Origin') || '*';
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Machine-Id',
-      'Access-Control-Max-Age': '86400',
-      'Access-Control-Allow-Credentials': 'true',
-    },
-  });
+/** Handle CORS preflight. Only reflects the origin if it is in the allowed list. */
+export function handleCorsPreFlight(request: Request, env: Env): Response {
+  const origin = request.headers.get('Origin');
+  const allowed = isOriginAllowed(origin, parseAllowedOrigins(env));
+
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Machine-Id',
+    'Access-Control-Max-Age': '86400',
+  };
+
+  if (allowed) {
+    headers['Access-Control-Allow-Origin'] = allowed;
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  }
+
+  return new Response(null, { status: 204, headers });
 }
 
 // ---------------------------------------------------------------------------

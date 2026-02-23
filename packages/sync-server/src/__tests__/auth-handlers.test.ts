@@ -62,6 +62,22 @@ describe('Auth Handlers', () => {
       const valid = await verifyPassword('password12345', 'not-a-valid-hash');
       expect(valid).toBe(false);
     });
+
+    it('should produce hashes in salt_hex:hash_hex format with 64-char salt and 64-char hash', async () => {
+      const hash = await hashPassword('test-password-123');
+      const [saltHex, hashHex] = hash.split(':');
+      // 32-byte salt = 64 hex chars, 32-byte derived key = 64 hex chars
+      expect(saltHex).toHaveLength(64);
+      expect(hashHex).toHaveLength(64);
+      expect(saltHex).toMatch(/^[0-9a-f]+$/);
+      expect(hashHex).toMatch(/^[0-9a-f]+$/);
+    });
+
+    it('should reject empty salt or hash parts', async () => {
+      expect(await verifyPassword('password12345', ':')).toBe(false);
+      expect(await verifyPassword('password12345', 'abc:')).toBe(false);
+      expect(await verifyPassword('password12345', ':abc')).toBe(false);
+    });
   });
 
   // -----------------------------------------------------------------------
