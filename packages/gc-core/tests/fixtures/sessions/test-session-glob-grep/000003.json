@@ -1,0 +1,16 @@
+{
+  "event_id": "g3",
+  "event_type": "ToolCallRequested",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-globgrep",
+  "sequence": 3,
+  "timestamp": "2026-01-01T00:00:02.000Z",
+  "data": {
+    "tool_name": "Glob",
+    "tool_input": {
+      "pattern": "**/*.js",
+      "path": "/src"
+    },
+    "tool_use_id": "tu_g1"
+  }
+}

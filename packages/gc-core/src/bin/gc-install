@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+# gc-install -- Main installer script for GlobalContext.
+# Orchestrates: prerequisites check, source file deployment, gc-init,
+# hook registration, and first-run verification.
+# Idempotent: safe to run repeatedly without data loss.
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Resolve lib directory and source dependencies
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
+
+# shellcheck source=../lib/paths.sh
+source "$LIB_DIR/paths.sh"
+# shellcheck source=../lib/prerequisites.sh
+source "$LIB_DIR/prerequisites.sh"
+# shellcheck source=../lib/version.sh
+source "$LIB_DIR/version.sh"
+# shellcheck source=../lib/deploy.sh
+source "$LIB_DIR/deploy.sh"
+
+# ---------------------------------------------------------------------------
+# Parse flags
+# ---------------------------------------------------------------------------
+OPT_FORCE=false
+OPT_SKIP_HOOKS=false
+OPT_DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force)
+      OPT_FORCE=true
+      shift
+      ;;
+    --skip-hooks)
+      OPT_SKIP_HOOKS=true
+      shift
+      ;;
+    --dry-run)
+      OPT_DRY_RUN=true
+      shift
+      ;;
+    --help|-h)
+      echo "Usage: gc-install [--force] [--skip-hooks] [--dry-run]"
+      echo ""
+      echo "Options:"
+      echo "  --force       Overwrite all files even if versions match"
+      echo "  --skip-hooks  Deploy files but do not register hooks"
+      echo "  --dry-run     Print what would be done without making changes"
+      exit 0
+      ;;
+    *)
+      echo "error: unknown option '$1'" >&2
+      echo "Usage: gc-install [--force] [--skip-hooks] [--dry-run]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ---------------------------------------------------------------------------
+# Resolve paths
+# ---------------------------------------------------------------------------
+GC_BASE="$GC_ROOT"
+SRC_DIR="$(gc_resolve_src_dir)"
+AVAILABLE_VERSION="$(gc_get_available_version "$SRC_DIR")"
+
+echo "GlobalContext Installer v${AVAILABLE_VERSION}"
+echo "=============================="
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 1: Check prerequisites
+# ---------------------------------------------------------------------------
+echo "Checking prerequisites..."
+if ! gc_check_prerequisites; then
+  gc_print_prereq_report
+  echo ""
+  echo "ERROR: Required prerequisites not met. Installation aborted." >&2
+  exit 1
+fi
+gc_print_prereq_report
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 2: Version check (upgrade logic)
+# ---------------------------------------------------------------------------
+INSTALLED_VERSION="$(gc_get_installed_version "$GC_BASE")"
+VERSION_CMP="$(gc_version_compare "$INSTALLED_VERSION" "$AVAILABLE_VERSION")"
+
+case "$VERSION_CMP" in
+  same)
+    if [[ "$OPT_FORCE" != "true" ]]; then
+      echo "Already up to date (v${INSTALLED_VERSION})"
+      exit 0
+    fi
+    echo "Force reinstall requested (v${INSTALLED_VERSION})."
+    ;;
+  upgrade)
+    if [[ "$INSTALLED_VERSION" != "0.0.0" ]]; then
+      echo "Upgrading from v${INSTALLED_VERSION} to v${AVAILABLE_VERSION}..."
+    else
+      echo "Fresh install of v${AVAILABLE_VERSION}..."
+    fi
+    ;;
+  downgrade)
+    if [[ "$OPT_FORCE" != "true" ]]; then
+      echo "WARNING: Installed version (${INSTALLED_VERSION}) is newer than available (${AVAILABLE_VERSION}). Use --force to downgrade."
+      exit 0
+    fi
+    echo "Force downgrade from v${INSTALLED_VERSION} to v${AVAILABLE_VERSION}..."
+    ;;
+esac
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 3: Deploy source files
+# ---------------------------------------------------------------------------
+echo "Deploying source files to $GC_BASE..."
+if [[ "$OPT_DRY_RUN" == "true" ]]; then
+  gc_deploy_files "$SRC_DIR" "$GC_BASE" true
+  echo ""
+  echo "Dry run: no changes made."
+  exit 0
+fi
+
+# Create the base directory with proper permissions
+mkdir -p "$GC_BASE"
+chmod 700 "$GC_BASE"
+
+gc_deploy_files "$SRC_DIR" "$GC_BASE" false
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 4: Initialize store (directories + config.json)
+# ---------------------------------------------------------------------------
+echo "Initializing store..."
+mkdir -p "$GC_BASE/events"
+chmod 700 "$GC_BASE/events"
+echo "  events/                 ok"
+
+mkdir -p "$GC_BASE/projections"
+chmod 700 "$GC_BASE/projections"
+echo "  projections/            ok"
+
+# Create config.json only if it does not exist
+if [[ -f "$GC_BASE/config.json" ]]; then
+  echo "  config.json             ok (preserved existing)"
+else
+  # Source config.sh to create default config
+  source "$LIB_DIR/config.sh"
+  gc_config_create
+  chmod 600 "$GC_CONFIG_FILE"
+  echo "  config.json             ok (created)"
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 5: Register hooks (unless --skip-hooks)
+# ---------------------------------------------------------------------------
+if [[ "$OPT_SKIP_HOOKS" == "true" ]]; then
+  echo "Skipping hook registration (--skip-hooks)."
+else
+  echo "Registering hooks..."
+  # Ensure ~/.claude/ exists
+  local_claude_dir="${HOME}/.claude"
+  if [ ! -d "$local_claude_dir" ]; then
+    mkdir -p "$local_claude_dir"
+    chmod 700 "$local_claude_dir"
+    echo "  Created $local_claude_dir"
+  fi
+
+  # Delegate to gc-install-hooks (Story 02)
+  if [ -x "$GC_BASE/bin/gc-install-hooks" ]; then
+    if "$GC_BASE/bin/gc-install-hooks" install 2>/dev/null; then
+      echo "  Hooks registered in $local_claude_dir/settings.json"
+      local_latest_backup=$(ls -t "$local_claude_dir"/settings.json.bak.* 2>/dev/null | head -1 || true)
+      if [ -n "$local_latest_backup" ]; then
+        echo "  Backup: $local_latest_backup"
+      fi
+    else
+      echo "  WARNING: Hook registration failed. Run gc-install-hooks install manually." >&2
+    fi
+  else
+    echo "  INFO: gc-install-hooks not available yet (Story 02). Skipping hook registration."
+  fi
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 6: Verify installation
+# ---------------------------------------------------------------------------
+echo "Verifying installation..."
+if [ -x "$GC_BASE/bin/gc-doctor" ]; then
+  if "$GC_BASE/bin/gc-doctor" 2>/dev/null; then
+    echo "  Doctor: all checks passed"
+  else
+    echo "  WARNING: Doctor reported issues. Run gc-doctor for details." >&2
+  fi
+else
+  # Basic verification if gc-doctor is not yet available
+  local_checks_passed=true
+  if [ -d "$GC_BASE/events" ]; then
+    echo "  events/ directory       ok"
+  else
+    echo "  events/ directory       FAIL" >&2
+    local_checks_passed=false
+  fi
+  if [ -d "$GC_BASE/projections" ]; then
+    echo "  projections/ directory  ok"
+  else
+    echo "  projections/ directory  FAIL" >&2
+    local_checks_passed=false
+  fi
+  if [ -f "$GC_BASE/VERSION" ]; then
+    echo "  VERSION file            ok"
+  else
+    echo "  VERSION file            FAIL" >&2
+    local_checks_passed=false
+  fi
+  if [ -f "$GC_BASE/config.json" ]; then
+    echo "  config.json             ok"
+  else
+    echo "  config.json             FAIL" >&2
+    local_checks_passed=false
+  fi
+  if [[ "$local_checks_passed" == "false" ]]; then
+    echo "  WARNING: Some checks failed." >&2
+  fi
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 7: Deploy recall skill to ~/.claude/skills/
+# ---------------------------------------------------------------------------
+_gc_deploy_skill() {
+  local skill_dir="$HOME/.claude/skills/recall"
+  local skill_src="$SRC_DIR/skills/recall/SKILL.md"
+
+  if [ ! -f "$skill_src" ]; then
+    echo "  recall skill            skipped (source not found)"
+    return 0
+  fi
+
+  mkdir -p "$skill_dir"
+  cp "$skill_src" "$skill_dir/SKILL.md"
+  echo "  recall skill            ok (~/.claude/skills/recall/)"
+}
+
+if [[ "$OPT_DRY_RUN" != "true" ]]; then
+  echo "Deploying skills..."
+  _gc_deploy_skill
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 8: Add bin/ to PATH if not already present
+# ---------------------------------------------------------------------------
+_gc_add_to_path() {
+  local bin_dir="$1"
+  local path_line="export PATH=\"$bin_dir:\$PATH\""
+
+  # Check if already on PATH
+  if echo "$PATH" | tr ':' '\n' | grep -qxF "$bin_dir"; then
+    echo "  PATH already includes $bin_dir"
+    return 0
+  fi
+
+  # Find the right shell config file
+  local shell_rc=""
+  case "${SHELL:-/bin/bash}" in
+    */zsh)  shell_rc="$HOME/.zshrc" ;;
+    */bash) shell_rc="$HOME/.bashrc" ;;
+    *)      shell_rc="$HOME/.profile" ;;
+  esac
+
+  # Check if the line is already in the file
+  if [ -f "$shell_rc" ] && grep -qF "$bin_dir" "$shell_rc" 2>/dev/null; then
+    echo "  PATH entry already in $shell_rc"
+    return 0
+  fi
+
+  # Ensure parent directory exists
+  mkdir -p "$(dirname "$shell_rc")"
+
+  # Append
+  echo "" >> "$shell_rc"
+  echo "# GlobalContext CLI tools" >> "$shell_rc"
+  echo "$path_line" >> "$shell_rc"
+  echo "  Added $bin_dir to PATH in $shell_rc"
+
+  # Also export for the current install session
+  export PATH="$bin_dir:$PATH"
+}
+
+if [[ "$OPT_DRY_RUN" != "true" ]]; then
+  _gc_add_to_path "$GC_BASE/bin"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 9: Print install summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "Installation complete!"
+echo "  Version: ${AVAILABLE_VERSION}"
+echo "  Store:   ${GC_BASE}"
+if [[ "$OPT_SKIP_HOOKS" == "true" ]]; then
+  echo "  Hooks:   skipped"
+else
+  echo "  Hooks:   registered"
+fi
+echo ""
+echo "To get started:"
+echo "  Start a new shell (or run: source ~/.bashrc)"
+echo "  Then: gc-query store-size"
+
+exit 0

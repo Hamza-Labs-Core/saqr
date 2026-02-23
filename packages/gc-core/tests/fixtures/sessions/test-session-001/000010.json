@@ -1,0 +1,11 @@
+{
+  "event_id": "e10",
+  "event_type": "UserPromptReceived",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-001",
+  "sequence": 10,
+  "timestamp": "2026-01-01T00:00:30.000Z",
+  "data": {
+    "prompt": "Now search for any other expiry-related tests"
+  }
+}

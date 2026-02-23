@@ -1,0 +1,13 @@
+{
+  "event_id": "d5",
+  "event_type": "ToolCallCompleted",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-duplicate",
+  "sequence": 5,
+  "timestamp": "2026-01-01T00:00:04.000Z",
+  "data": {
+    "tool_name": "Read",
+    "tool_response": "content",
+    "tool_use_id": "tu_dup"
+  }
+}

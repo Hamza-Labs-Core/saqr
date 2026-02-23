@@ -1,0 +1,9 @@
+{
+  "event_id": "e9",
+  "event_type": "TurnCompleted",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-001",
+  "sequence": 9,
+  "timestamp": "2026-01-01T00:00:26.000Z",
+  "data": {}
+}

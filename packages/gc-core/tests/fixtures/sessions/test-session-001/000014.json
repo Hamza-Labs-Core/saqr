@@ -1,0 +1,9 @@
+{
+  "event_id": "e14",
+  "event_type": "SessionEnded",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-001",
+  "sequence": 14,
+  "timestamp": "2026-01-01T00:01:30.000Z",
+  "data": {}
+}

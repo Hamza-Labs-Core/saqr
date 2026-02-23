@@ -1,0 +1,3010 @@
+#!/usr/bin/env node
+// gc-dashboard -- Web UI dashboard for GlobalContext event monitoring.
+// Single-file Node.js HTTP server (no npm). Serves inline HTML/CSS/JS dashboard.
+// Uses SSE for live event streaming. Imports existing projection libs.
+//
+// Usage: gc-dashboard [--port PORT]
+// Default port: 4000
+
+import http from 'node:http';
+import https from 'node:https';
+import { readdir, readFile, writeFile, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
+import path from 'node:path';
+import os from 'node:os';
+
+// --- Inlined helpers (from projections/lib) ---
+// Self-contained so the dashboard works from any install location.
+
+function getBasePath() {
+  return process.env.CLAUDE_CONTEXT_PATH || path.join(os.homedir(), '.claude-context');
+}
+
+function truncate(str, maxLen, suffix = '...') {
+  if (typeof str !== 'string') return '';
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen) + suffix;
+}
+
+/** Escape HTML entities for safe embedding in generated HTML */
+function escHtml(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Format a file path: dim directory, bright filename */
+function fmtPath(filePath) {
+  if (!filePath) return '<span class="ev-file">?</span>';
+  const parts = filePath.split('/');
+  // Show last 3 segments if path is long
+  const display = parts.length > 4 ? ['...', ...parts.slice(-3)] : parts;
+  const dir = display.slice(0, -1).join('/');
+  const file = display[display.length - 1];
+  if (dir) {
+    return '<span class="ev-file"><span class="ev-file-dir">' + escHtml(dir) + '/</span><span class="ev-file-name">' + escHtml(file) + '</span></span>';
+  }
+  return '<span class="ev-file"><span class="ev-file-name">' + escHtml(file) + '</span></span>';
+}
+
+/** Format a short domain from a URL */
+function fmtDomain(url) {
+  try {
+    const u = new URL(url);
+    return u.hostname.replace(/^www\./, '');
+  } catch { return url; }
+}
+
+function generateInputSummary(toolName, toolInput) {
+  if (!toolInput) return { text: `${toolName}: (no input)`, html: escHtml(toolName) + ': <span class="ev-output">(no input)</span>' };
+  const name = (toolName || '').toLowerCase();
+  switch (name) {
+    case 'read':
+      return {
+        text: `Read ${toolInput.file_path || '?'}`,
+        html: '<span class="ev-icon">&#128196;</span> ' + fmtPath(toolInput.file_path)
+      };
+    case 'write': {
+      const len = (toolInput.content || '').length;
+      return {
+        text: `Write ${toolInput.file_path || '?'} (${len} chars)`,
+        html: '<span class="ev-icon">&#9998;</span> ' + fmtPath(toolInput.file_path) + ' <span class="ev-output">(' + len + ' chars)</span>'
+      };
+    }
+    case 'edit':
+      return {
+        text: `Edit ${toolInput.file_path || '?'}`,
+        html: '<span class="ev-icon">&#128221;</span> ' + fmtPath(toolInput.file_path) +
+          (toolInput.old_string || toolInput.new_string ?
+            ' <span class="ev-diff"><span class="ev-diff-del">-' + escHtml(String((toolInput.old_string || '').split('\n').length)) + '</span> <span class="ev-diff-add">+' + escHtml(String((toolInput.new_string || '').split('\n').length)) + '</span> lines</span>'
+            : '')
+      };
+    case 'bash': {
+      const cmd = toolInput.command || '';
+      const desc = toolInput.description || '';
+      return {
+        text: `Bash: ${truncate(cmd, 100)}`,
+        html: '<div class="ev-bash"><span class="ev-bash-prompt">$</span> <code>' + escHtml(truncate(cmd, 200)) + '</code></div>' +
+          (desc ? '<div class="ev-output">' + escHtml(truncate(desc, 120)) + '</div>' : '')
+      };
+    }
+    case 'glob':
+      return {
+        text: `Glob ${toolInput.pattern || '?'} in ${toolInput.path || '.'}`,
+        html: '<span class="ev-icon">&#128269;</span> <span class="ev-search">' + escHtml(toolInput.pattern || '?') + '</span>' +
+          ' <span class="ev-output">in ' + escHtml(truncate(toolInput.path || '.', 60)) + '</span>'
+      };
+    case 'grep':
+      return {
+        text: `Grep ${truncate(toolInput.pattern || '?', 50)} in ${toolInput.path || '.'}`,
+        html: '<span class="ev-icon">&#128269;</span> <span class="ev-search">' + escHtml(truncate(toolInput.pattern || '?', 80)) + '</span>' +
+          ' <span class="ev-output">in ' + escHtml(truncate(toolInput.path || '.', 60)) + '</span>' +
+          (toolInput.output_mode ? ' <span class="ev-code">' + escHtml(toolInput.output_mode) + '</span>' : '')
+      };
+    case 'webfetch': {
+      const url = toolInput.url || '?';
+      const domain = fmtDomain(url);
+      return {
+        text: `WebFetch ${truncate(url, 80)}`,
+        html: '<span class="ev-web-icon">&#127760;</span> <a class="ev-web-link" href="' + escHtml(url) + '" target="_blank" rel="noopener">' + escHtml(domain) + '</a>' +
+          (toolInput.prompt ? ' <span class="ev-output">' + escHtml(truncate(toolInput.prompt, 80)) + '</span>' : '')
+      };
+    }
+    case 'websearch':
+      return {
+        text: `WebSearch ${truncate(toolInput.query || '?', 80)}`,
+        html: '<span class="ev-web-icon">&#128270;</span> <em class="ev-web-query">' + escHtml(truncate(toolInput.query || '?', 120)) + '</em>'
+      };
+    case 'task':
+      return {
+        text: `Task: ${truncate(toolInput.description || toolInput.prompt || '?', 100)}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#129302;</span> ' +
+          (toolInput.subagent_type ? '<span class="ev-task-agent-badge">' + escHtml(toolInput.subagent_type) + '</span> ' : '') +
+          '<span class="ev-output">' + escHtml(truncate(toolInput.description || toolInput.prompt || '?', 150)) + '</span>' +
+          (toolInput.run_in_background ? ' <span class="ev-task-bg-badge">bg</span>' : '') +
+          '</div>'
+      };
+    case 'taskcreate':
+      return {
+        text: `New task: ${toolInput.subject || '?'}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#9989;</span> New task: <strong>' + escHtml(truncate(toolInput.subject || '?', 120)) + '</strong>' +
+          (toolInput.description ? ' <span class="ev-output">' + escHtml(truncate(toolInput.description, 100)) + '</span>' : '') +
+          '</div>'
+      };
+    case 'taskupdate': {
+      const statusBadgeClass = { completed: 'ev-task-status-completed', in_progress: 'ev-task-status-inprogress', deleted: 'ev-task-status-deleted', pending: 'ev-task-status-pending' };
+      const statusCls = statusBadgeClass[toolInput.status] || 'ev-task-status-pending';
+      return {
+        text: `Task ${toolInput.taskId || '?'} -> ${toolInput.status || '?'}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#128203;</span> ' + escHtml(toolInput.taskId || '?') +
+          ' <span class="ev-task-status ' + statusCls + '">' + escHtml(toolInput.status || '?') + '</span>' +
+          (toolInput.subject ? ' <span class="ev-output">' + escHtml(truncate(toolInput.subject, 100)) + '</span>' : '') +
+          '</div>'
+      };
+    }
+    case 'taskoutput':
+      return {
+        text: `Reading task output: ${toolInput.task_id || '?'}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#128228;</span> Reading task output: <span class="ev-code">' + escHtml(toolInput.task_id || '?') + '</span></div>'
+      };
+    case 'taskstop':
+      return {
+        text: `Stopping task: ${toolInput.task_id || '?'}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#9209;</span> Stopping task: <span class="ev-code">' + escHtml(toolInput.task_id || '?') + '</span></div>'
+      };
+    case 'tasklist':
+      return {
+        text: 'Listing tasks',
+        html: '<div class="ev-task"><span class="ev-task-icon">&#128203;</span> Listing tasks</div>'
+      };
+    default:
+      return {
+        text: `${toolName}: ${truncate(JSON.stringify(toolInput), 100)}`,
+        html: escHtml(toolName) + ': <span class="ev-output">' + escHtml(truncate(JSON.stringify(toolInput), 150)) + '</span>'
+      };
+  }
+}
+
+function generateOutputSummary(toolName, toolResponse, data) {
+  const name = (toolName || '').toLowerCase();
+  const response = typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse || '');
+  switch (name) {
+    case 'read': {
+      const lineCount = (response.match(/\n/g) || []).length + 1;
+      return {
+        text: `Read ${lineCount} lines`,
+        html: '<span class="ev-icon">&#128196;</span> <span class="ev-output">Read ' + lineCount + ' lines</span>'
+      };
+    }
+    case 'write':
+      return {
+        text: 'Write completed',
+        html: '<span class="ev-icon">&#9998;</span> <span class="ev-output ev-success">Write completed</span>'
+      };
+    case 'edit':
+      return {
+        text: 'Edit completed',
+        html: '<span class="ev-icon">&#128221;</span> <span class="ev-output ev-success">Edit completed</span>'
+      };
+    case 'bash': {
+      const exitCode = data?.exit_code ?? data?.exitCode ?? '?';
+      const stdout = data?.stdout || '';
+      const stderr = data?.stderr || '';
+      const exitInt = parseInt(exitCode, 10);
+      const exitBadge = exitInt !== 0
+        ? ' <span class="ev-exit-err">exit ' + escHtml(String(exitCode)) + '</span>'
+        : ' <span class="ev-exit-ok">exit 0</span>';
+      let outputPreview = '';
+      if (stderr && exitInt !== 0) {
+        outputPreview = '<div class="ev-bash-output ev-bash-stderr">' + escHtml(truncate(stderr, 200)) + '</div>';
+      } else if (stdout) {
+        outputPreview = '<div class="ev-bash-output">' + escHtml(truncate(stdout, 200)) + '</div>';
+      } else if (response && typeof toolResponse === 'string') {
+        outputPreview = '<div class="ev-bash-output">' + escHtml(truncate(response, 200)) + '</div>';
+      }
+      return {
+        text: `Bash exit=${exitCode}: ${truncate(stdout || response, 80)}`,
+        html: '<div class="ev-bash-result"><span class="ev-bash-prompt">$</span>' + exitBadge + '</div>' + outputPreview
+      };
+    }
+    case 'glob': {
+      const count = response.split('\n').filter(l => l.trim()).length;
+      return {
+        text: `Glob: ${count} files`,
+        html: '<span class="ev-icon">&#128269;</span> <span class="ev-search-result">' + count + ' files matched</span>'
+      };
+    }
+    case 'grep': {
+      const count = response.split('\n').filter(l => l.trim()).length;
+      return {
+        text: `Grep: ${count} results`,
+        html: '<span class="ev-icon">&#128269;</span> <span class="ev-search-result">' + count + ' results</span>'
+      };
+    }
+    case 'websearch': {
+      let resultsHtml = '';
+      if (toolResponse && typeof toolResponse === 'object') {
+        const results = toolResponse.results || toolResponse;
+        if (Array.isArray(results)) {
+          const top = results.slice(0, 3);
+          resultsHtml = '<div class="ev-web-results">' +
+            top.map(r => {
+              const title = escHtml(truncate(r.title || r.url || '?', 60));
+              const url = escHtml(r.url || '#');
+              return '<a class="ev-web-result-item" href="' + url + '" target="_blank" rel="noopener">' + title + '</a>';
+            }).join('') +
+            (results.length > 3 ? '<span class="ev-output">+' + (results.length - 3) + ' more</span>' : '') +
+            '</div>';
+        }
+      }
+      return {
+        text: `WebSearch: ${truncate(response, 100)}`,
+        html: '<span class="ev-web-icon">&#128270;</span> <span class="ev-output">Search complete</span>' + resultsHtml
+      };
+    }
+    case 'webfetch': {
+      const code = (toolResponse && typeof toolResponse === 'object') ? toolResponse.code : '';
+      const result = (toolResponse && typeof toolResponse === 'object') ? (toolResponse.result || '') : response;
+      const byteCount = typeof result === 'string' ? result.length : 0;
+      return {
+        text: `WebFetch: ${code || '?'} (${byteCount} bytes)`,
+        html: '<span class="ev-web-icon">&#127760;</span>' +
+          (code ? ' <span class="ev-code">HTTP ' + escHtml(String(code)) + '</span>' : '') +
+          ' <span class="ev-output">' + byteCount + ' chars fetched</span>'
+      };
+    }
+    case 'task': {
+      const preview = truncate(response, 200);
+      return {
+        text: `Task completed: ${truncate(response, 100)}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#129302;</span> <span class="ev-output ev-success">Task completed</span>' +
+          (preview ? '<div class="ev-bash-output">' + escHtml(preview) + '</div>' : '') +
+          '</div>'
+      };
+    }
+    case 'taskcreate':
+      return {
+        text: 'Task created',
+        html: '<div class="ev-task"><span class="ev-task-icon">&#9989;</span> <span class="ev-output ev-success">Task created</span></div>'
+      };
+    case 'taskupdate':
+      return {
+        text: 'Task updated',
+        html: '<div class="ev-task"><span class="ev-task-icon">&#128203;</span> <span class="ev-output ev-success">Task updated</span></div>'
+      };
+    case 'taskoutput': {
+      const outPreview = truncate(response, 200);
+      return {
+        text: `Task output: ${truncate(response, 100)}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#128228;</span> <span class="ev-output">Task output received</span>' +
+          (outPreview ? '<div class="ev-bash-output">' + escHtml(outPreview) + '</div>' : '') +
+          '</div>'
+      };
+    }
+    case 'taskstop':
+      return {
+        text: 'Task stopped',
+        html: '<div class="ev-task"><span class="ev-task-icon">&#9209;</span> <span class="ev-output">Task stopped</span></div>'
+      };
+    case 'tasklist': {
+      const listPreview = truncate(response, 200);
+      return {
+        text: `Task list: ${truncate(response, 100)}`,
+        html: '<div class="ev-task"><span class="ev-task-icon">&#128203;</span> <span class="ev-output">Tasks listed</span>' +
+          (listPreview ? '<div class="ev-bash-output">' + escHtml(listPreview) + '</div>' : '') +
+          '</div>'
+      };
+    }
+    default:
+      return {
+        text: `${toolName}: ${truncate(response, 100)}`,
+        html: escHtml(toolName) + ': <span class="ev-output">' + escHtml(truncate(response, 150)) + '</span>'
+      };
+  }
+}
+
+function generateEventSummary(event) {
+  const data = event.data || {};
+  switch (event.event_type) {
+    case 'SessionStarted':
+      return {
+        text: `Session started (model: ${data.model || '?'}, cwd: ${data.cwd || '?'})`,
+        html: '<span class="ev-session-icon">&#9654;</span> <span class="ev-code">' + escHtml(data.model || '?') + '</span> <span class="ev-output">cwd: ' + escHtml(truncate(data.cwd || '?', 80)) + '</span>'
+      };
+    case 'SessionEnded':
+      return {
+        text: 'Session ended',
+        html: '<span class="ev-session-icon">&#9632;</span> <span class="ev-output">Session ended</span>'
+      };
+    case 'UserPromptReceived': {
+      const prompt = data.prompt || data.message || '';
+      const trimmedPrompt = prompt.trimStart();
+      // Detect system-injected messages by XML tag prefix
+      if (trimmedPrompt.startsWith('<task-notification>')) {
+        // Parse task notification: extract task-id, status, summary
+        const tidMatch = trimmedPrompt.match(/<task-id>\s*(.*?)\s*<\/task-id>/s);
+        const statusMatch = trimmedPrompt.match(/<status>\s*(.*?)\s*<\/status>/s);
+        const summaryMatch = trimmedPrompt.match(/<summary>\s*(.*?)\s*<\/summary>/s);
+        const tid = tidMatch ? tidMatch[1].trim() : '?';
+        const tStatus = statusMatch ? statusMatch[1].trim() : '?';
+        const tSummary = summaryMatch ? summaryMatch[1].trim() : '';
+        const statusBadgeCls = tStatus === 'completed' ? 'ev-systask-status-completed'
+          : tStatus === 'in_progress' ? 'ev-systask-status-inprogress'
+          : tStatus === 'error' || tStatus === 'failed' ? 'ev-systask-status-failed'
+          : 'ev-systask-status-other';
+        return {
+          text: `[System] Task notification: ${tid} ${tStatus}`,
+          html: '<div class="ev-sysmsg ev-sysmsg-task">' +
+            '<span class="ev-sysmsg-icon">&#129302;</span> ' +
+            '<span class="ev-sysmsg-label">Task</span> ' +
+            '<span class="ev-code">' + escHtml(truncate(tid, 20)) + '</span> ' +
+            '<span class="ev-systask-status ' + statusBadgeCls + '">' + escHtml(tStatus) + '</span>' +
+            (tSummary ? ' <span class="ev-output">' + escHtml(truncate(tSummary, 150)) + '</span>' : '') +
+            '</div>'
+        };
+      }
+      if (trimmedPrompt.startsWith('<system-reminder>')) {
+        const previewText = trimmedPrompt.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        return {
+          text: `[System] Reminder: ${truncate(previewText, 150)}`,
+          html: '<div class="ev-sysmsg ev-sysmsg-reminder">' +
+            '<span class="ev-sysmsg-icon">&#9881;</span> ' +
+            '<span class="ev-sysmsg-label">System Reminder</span> ' +
+            '<span class="ev-output">' + escHtml(truncate(previewText, 200)) + '</span>' +
+            '</div>'
+        };
+      }
+      if (trimmedPrompt.startsWith('<task-id>') || trimmedPrompt.startsWith('<output-file>') ||
+          trimmedPrompt.startsWith('<command-name>') || trimmedPrompt.startsWith('<command-message>')) {
+        const tagMatch = trimmedPrompt.match(/^<([a-z-]+)>/);
+        const tagName = tagMatch ? tagMatch[1] : 'system';
+        const innerText = trimmedPrompt.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        return {
+          text: `[System] ${tagName}: ${truncate(innerText, 150)}`,
+          html: '<div class="ev-sysmsg ev-sysmsg-meta">' +
+            '<span class="ev-sysmsg-icon">&#9881;</span> ' +
+            '<span class="ev-sysmsg-label">' + escHtml(tagName) + '</span> ' +
+            '<span class="ev-output">' + escHtml(truncate(innerText, 200)) + '</span>' +
+            '</div>'
+        };
+      }
+      // Real user prompt
+      return {
+        text: `User: ${truncate(prompt, 200)}`,
+        html: '<span class="ev-prompt-icon">&#128172;</span> <span class="ev-prompt">' + escHtml(truncate(prompt, 300)) + '</span>'
+      };
+    }
+    case 'ToolCallRequested':
+      return generateInputSummary(data.tool_name, data.tool_input);
+    case 'ToolCallCompleted':
+      return generateOutputSummary(data.tool_name, data.tool_response || data.result, data);
+    case 'ToolCallFailed':
+      return {
+        text: `FAILED ${data.tool_name || '?'}: ${truncate(data.error || '', 150)}`,
+        html: '<div class="ev-error"><span class="ev-error-icon">&#10060;</span> <strong>' + escHtml(data.tool_name || '?') + '</strong>: ' + escHtml(truncate(data.error || '', 200)) + '</div>'
+      };
+    case 'AgentSpawned':
+      return {
+        text: `Spawned ${data.agent_type || '?'}: ${truncate(data.description || '', 100)}`,
+        html: '<span class="ev-agent-icon">&#129302;</span> <span class="ev-code">' + escHtml(data.agent_type || '?') + '</span>' +
+          (data.agent_id ? ' <span class="ev-output">#' + escHtml(truncate(data.agent_id, 12)) + '</span>' : '') +
+          (data.description ? ' <span class="ev-output">' + escHtml(truncate(data.description, 100)) + '</span>' : '')
+      };
+    case 'AgentCompleted':
+      return {
+        text: `Agent done: ${data.agent_type || '?'}`,
+        html: '<span class="ev-agent-icon">&#129302;</span> <span class="ev-code">' + escHtml(data.agent_type || '?') + '</span> <span class="ev-output ev-success">completed</span>' +
+          (data.agent_id ? ' <span class="ev-output">#' + escHtml(truncate(data.agent_id, 12)) + '</span>' : '')
+      };
+    case 'TurnCompleted': {
+      const resp = data.response || '';
+      return {
+        text: 'Turn completed' + (resp ? ': ' + truncate(resp, 100) : ''),
+        html: '<span class="ev-output">Turn completed</span>' +
+          (resp ? '<div class="ev-turn-preview">' + escHtml(truncate(resp, 200)) + '</div>' : '')
+      };
+    }
+    case 'CompactionTriggered':
+      return {
+        text: `COMPACTION at seq ${event.sequence}`,
+        html: '<span class="ev-compact-icon">&#9888;</span> <span class="ev-compact">Compaction triggered</span>' +
+          (data.trigger ? ' <span class="ev-output">' + escHtml(data.trigger) + '</span>' : '')
+      };
+    default:
+      return {
+        text: `${event.event_type} at seq ${event.sequence}`,
+        html: escHtml(event.event_type) + ' <span class="ev-output">seq ' + (event.sequence || '') + '</span>'
+      };
+  }
+}
+
+// --- CLI args ---
+import { writeFileSync, unlinkSync, readFileSync, existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+
+let port = 4000;
+let command = 'start'; // default
+
+const args = process.argv.slice(2);
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--port' && args[i + 1]) {
+    port = parseInt(args[i + 1], 10);
+    i++;
+  } else if (args[i] === '--help' || args[i] === 'help') {
+    console.log('Usage: gc-dashboard [command] [--port PORT]');
+    console.log('');
+    console.log('Commands:');
+    console.log('  start      Start the dashboard (default)');
+    console.log('  stop       Stop the running dashboard');
+    console.log('  restart    Stop + start (for updates)');
+    console.log('  status     Show if dashboard is running');
+    console.log('');
+    console.log('Options:');
+    console.log('  --port PORT  HTTP port (default: 4000)');
+    process.exit(0);
+  } else if (['start', 'stop', 'restart', 'status'].includes(args[i])) {
+    command = args[i];
+  }
+}
+
+const BASE = getBasePath();
+const EVENTS_DIR = path.join(BASE, 'events');
+const PID_FILE = path.join(BASE, '.dashboard.pid');
+
+// --- Lifecycle commands ---
+
+function readPid() {
+  try {
+    const content = readFileSync(PID_FILE, 'utf-8').trim();
+    const [pidStr, portStr] = content.split('\n');
+    return { pid: parseInt(pidStr, 10), port: parseInt(portStr, 10) || 4000 };
+  } catch {
+    return null;
+  }
+}
+
+function isRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stopDashboard() {
+  const info = readPid();
+  if (!info || !isRunning(info.pid)) {
+    console.log('Dashboard is not running.');
+    return false;
+  }
+  try {
+    process.kill(info.pid, 'SIGTERM');
+    // Wait up to 2s for it to die
+    for (let i = 0; i < 20; i++) {
+      if (!isRunning(info.pid)) break;
+      execSync('sleep 0.1');
+    }
+    if (isRunning(info.pid)) {
+      process.kill(info.pid, 'SIGKILL');
+    }
+    try { unlinkSync(PID_FILE); } catch {}
+    console.log(`Dashboard (pid ${info.pid}) stopped.`);
+    return true;
+  } catch (e) {
+    console.error(`Failed to stop dashboard (pid ${info.pid}):`, e.message);
+    return false;
+  }
+}
+
+if (command === 'stop') {
+  stopDashboard();
+  process.exit(0);
+}
+
+if (command === 'status') {
+  const info = readPid();
+  if (info && isRunning(info.pid)) {
+    console.log(`Dashboard running: pid=${info.pid} port=${info.port}`);
+    console.log(`URL: http://localhost:${info.port}`);
+  } else {
+    console.log('Dashboard is not running.');
+    if (info) {
+      try { unlinkSync(PID_FILE); } catch {}
+    }
+  }
+  process.exit(0);
+}
+
+if (command === 'restart') {
+  stopDashboard();
+  // Fall through to start
+}
+
+// 'start' or 'restart' — check if already running (for plain 'start')
+if (command === 'start') {
+  const info = readPid();
+  if (info && isRunning(info.pid)) {
+    console.log(`Dashboard already running: pid=${info.pid} port=${info.port}`);
+    console.log(`Use 'gc-dashboard restart' to restart.`);
+    process.exit(0);
+  }
+}
+
+// --- Helpers ---
+
+/** Strip the 6-char hash suffix from project_id to get the project name */
+function projectName(projectId) {
+  return projectId.replace(/-[a-f0-9]{6}$/, '');
+}
+
+/** List all projects (directories under events/) */
+async function listProjects() {
+  try {
+    const entries = await readdir(EVENTS_DIR, { withFileTypes: true });
+    const projects = [];
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const projectId = e.name;
+      // Count sessions
+      const pdir = path.join(EVENTS_DIR, projectId);
+      const sessions = await readdir(pdir, { withFileTypes: true }).catch(() => []);
+      const sessionCount = sessions.filter(s => s.isDirectory()).length;
+      projects.push({ project_id: projectId, name: projectName(projectId), session_count: sessionCount });
+    }
+    return projects;
+  } catch {
+    return [];
+  }
+}
+
+/** List sessions for a project with metadata from session.json */
+async function listSessions(projectId) {
+  const pdir = path.join(EVENTS_DIR, projectId);
+  try {
+    const entries = await readdir(pdir, { withFileTypes: true });
+    const sessions = [];
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const sdir = path.join(pdir, e.name);
+      const metaPath = path.join(sdir, 'session.json');
+      let meta = { session_id: e.name, project_id: projectId };
+      try {
+        const raw = await readFile(metaPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        meta = { ...meta, ...parsed };
+      } catch {
+        // Count events as fallback
+        const files = await readdir(sdir).catch(() => []);
+        meta.event_count = files.filter(f => /^\d+\.json$/.test(f)).length;
+      }
+      sessions.push(meta);
+    }
+    // Sort by started_at descending (newest first)
+    sessions.sort((a, b) => (b.started_at || '').localeCompare(a.started_at || ''));
+    return sessions;
+  } catch {
+    return [];
+  }
+}
+
+/** Read event files from a session, optionally starting from a sequence number */
+async function readEvents(projectId, sessionId, fromSeq = 0) {
+  const sdir = path.join(EVENTS_DIR, projectId, sessionId);
+  try {
+    const entries = await readdir(sdir);
+    const eventFiles = entries
+      .filter(f => /^\d+\.json$/.test(f))
+      .map(f => ({ filename: f, sequence: parseInt(f.replace('.json', ''), 10) }))
+      .filter(f => f.sequence > fromSeq)
+      .sort((a, b) => a.sequence - b.sequence);
+
+    const events = [];
+    for (const ef of eventFiles) {
+      try {
+        const raw = await readFile(path.join(sdir, ef.filename), 'utf-8');
+        const parsed = JSON.parse(raw);
+        parsed._summary = generateEventSummary(parsed);
+        events.push(parsed);
+      } catch { /* skip corrupt */ }
+    }
+    return events;
+  } catch {
+    return [];
+  }
+}
+
+// --- Usage tracking ---
+
+const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
+
+// Cache: key = "filepath:filesize" -> { sessions: Map<sessionId, sessionUsage> }
+const usageCache = new Map();
+
+/** Convert a project_dir (e.g. /home/meywd/GlobalContext) to Claude's dir name */
+function toClaudeDir(projectDir) {
+  return '-' + projectDir.replace(/^\//, '').replace(/\//g, '-');
+}
+
+/** Read project_dir from the first session.json found in a project's events dir */
+async function getProjectDir(projectId) {
+  const pdir = path.join(EVENTS_DIR, projectId);
+  try {
+    const entries = await readdir(pdir, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const metaPath = path.join(pdir, e.name, 'session.json');
+      try {
+        const raw = await readFile(metaPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed.project_dir) return parsed.project_dir;
+      } catch { /* try next */ }
+    }
+  } catch { /* no events dir */ }
+  return null;
+}
+
+/** Stream-parse a JSONL file and extract assistant usage entries */
+async function parseTranscriptFile(filePath) {
+  const sessions = new Map();
+  const daily = new Map();
+
+  return new Promise((resolve, reject) => {
+    const stream = createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+    rl.on('line', (line) => {
+      // Fast pre-filter: only parse lines that look like assistant entries
+      if (!line.includes('"type":"assistant"') && !line.includes('"type": "assistant"')) return;
+
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type !== 'assistant') return;
+
+        const usage = entry.message?.usage;
+        if (!usage) return;
+
+        const sessionId = entry.sessionId || 'unknown';
+        const model = entry.message?.model || 'unknown';
+        const timestamp = entry.timestamp || '';
+
+        if (!sessions.has(sessionId)) {
+          sessions.set(sessionId, {
+            session_id: sessionId,
+            api_calls: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_create_tokens: 0,
+            model: model,
+            started_at: timestamp,
+            last_api_call_at: timestamp,
+          });
+        }
+
+        const s = sessions.get(sessionId);
+        s.api_calls++;
+        s.input_tokens += usage.input_tokens || 0;
+        s.output_tokens += usage.output_tokens || 0;
+        s.cache_read_tokens += usage.cache_read_input_tokens || 0;
+        s.cache_create_tokens += usage.cache_creation_input_tokens || 0;
+        if (model !== 'unknown') s.model = model;
+        if (!s.started_at || timestamp < s.started_at) s.started_at = timestamp;
+        if (!s.last_api_call_at || timestamp > s.last_api_call_at) s.last_api_call_at = timestamp;
+
+        // Aggregate daily data
+        const dateKey = timestamp.slice(0, 10); // 'YYYY-MM-DD'
+        if (dateKey && dateKey.length === 10) {
+          if (!daily.has(dateKey)) {
+            daily.set(dateKey, {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_tokens: 0,
+              cache_create_tokens: 0,
+              api_calls: 0,
+            });
+          }
+          const d = daily.get(dateKey);
+          d.input_tokens += usage.input_tokens || 0;
+          d.output_tokens += usage.output_tokens || 0;
+          d.cache_read_tokens += usage.cache_read_input_tokens || 0;
+          d.cache_create_tokens += usage.cache_creation_input_tokens || 0;
+          d.api_calls++;
+        }
+      } catch { /* skip malformed line */ }
+    });
+
+    rl.on('close', () => resolve({ sessions, daily }));
+    rl.on('error', (err) => reject(err));
+    stream.on('error', (err) => reject(err));
+  });
+}
+
+/** Get usage for a single JSONL file, using cache if file size unchanged */
+async function getFileUsage(filePath) {
+  try {
+    const st = await stat(filePath);
+    const cacheKey = filePath + ':' + st.size;
+
+    if (usageCache.has(cacheKey)) {
+      return usageCache.get(cacheKey);
+    }
+
+    const result = await parseTranscriptFile(filePath);
+    usageCache.set(cacheKey, result);
+    return result;
+  } catch {
+    return { sessions: new Map(), daily: new Map() };
+  }
+}
+
+/** Get usage data for a single project */
+async function getProjectUsage(projectId) {
+  const projectDir = await getProjectDir(projectId);
+  if (!projectDir) return null;
+
+  const claudeDir = toClaudeDir(projectDir);
+  const claudePath = path.join(CLAUDE_PROJECTS_DIR, claudeDir);
+
+  let files;
+  try {
+    const entries = await readdir(claudePath);
+    files = entries.filter(f => f.endsWith('.jsonl')).map(f => path.join(claudePath, f));
+  } catch {
+    return null;
+  }
+
+  // Aggregate all sessions and daily data across all transcript files
+  const allSessions = new Map();
+  const allDaily = new Map();
+
+  // Parse files concurrently (limit concurrency to avoid fd exhaustion)
+  const CONCURRENCY = 8;
+  const fileResults = [];
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    const chunk = files.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(chunk.map(f => getFileUsage(f)));
+    fileResults.push(...results);
+  }
+
+  for (const fileResult of fileResults) {
+    const fileSessions = fileResult.sessions || fileResult;
+    const fileDaily = fileResult.daily || new Map();
+
+    for (const [sid, usage] of fileSessions) {
+      if (!allSessions.has(sid)) {
+        allSessions.set(sid, { ...usage });
+      } else {
+        const existing = allSessions.get(sid);
+        existing.api_calls += usage.api_calls;
+        existing.input_tokens += usage.input_tokens;
+        existing.output_tokens += usage.output_tokens;
+        existing.cache_read_tokens += usage.cache_read_tokens;
+        existing.cache_create_tokens += usage.cache_create_tokens;
+        if (usage.model !== 'unknown') existing.model = usage.model;
+        if (usage.started_at < existing.started_at) existing.started_at = usage.started_at;
+        if (usage.last_api_call_at > existing.last_api_call_at) existing.last_api_call_at = usage.last_api_call_at;
+      }
+    }
+
+    for (const [dateKey, dayUsage] of fileDaily) {
+      if (!allDaily.has(dateKey)) {
+        allDaily.set(dateKey, { ...dayUsage });
+      } else {
+        const existing = allDaily.get(dateKey);
+        existing.input_tokens += dayUsage.input_tokens;
+        existing.output_tokens += dayUsage.output_tokens;
+        existing.cache_read_tokens += dayUsage.cache_read_tokens;
+        existing.cache_create_tokens += dayUsage.cache_create_tokens;
+        existing.api_calls += dayUsage.api_calls;
+      }
+    }
+  }
+
+  const sessions = Array.from(allSessions.values())
+    .sort((a, b) => (b.last_api_call_at || '').localeCompare(a.last_api_call_at || ''));
+
+  const totals = {
+    api_calls: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_create_tokens: 0,
+  };
+
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const weekly = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_create_tokens: 0,
+  };
+
+  for (const s of sessions) {
+    totals.api_calls += s.api_calls;
+    totals.input_tokens += s.input_tokens;
+    totals.output_tokens += s.output_tokens;
+    totals.cache_read_tokens += s.cache_read_tokens;
+    totals.cache_create_tokens += s.cache_create_tokens;
+
+    // Weekly aggregation: check if session had activity this week
+    if (s.last_api_call_at && new Date(s.last_api_call_at) >= weekAgo) {
+      weekly.input_tokens += s.input_tokens;
+      weekly.output_tokens += s.output_tokens;
+      weekly.cache_read_tokens += s.cache_read_tokens;
+      weekly.cache_create_tokens += s.cache_create_tokens;
+    }
+  }
+
+  const byModel = {};
+  for (const s of sessions) {
+    const model = s.model || 'unknown';
+    if (!byModel[model]) byModel[model] = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_create_tokens: 0, api_calls: 0 };
+    byModel[model].input_tokens += s.input_tokens;
+    byModel[model].output_tokens += s.output_tokens;
+    byModel[model].cache_read_tokens += s.cache_read_tokens;
+    byModel[model].cache_create_tokens += s.cache_create_tokens;
+    byModel[model].api_calls += s.api_calls;
+  }
+
+  // Build daily array sorted ascending by date
+  const daily = Array.from(allDaily.entries())
+    .map(([date, d]) => ({ date, ...d }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Build monthly aggregation from daily data
+  const monthlyMap = new Map();
+  for (const d of daily) {
+    const monthKey = d.date.slice(0, 7); // 'YYYY-MM'
+    if (!monthlyMap.has(monthKey)) {
+      monthlyMap.set(monthKey, { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_create_tokens: 0, api_calls: 0 });
+    }
+    const m = monthlyMap.get(monthKey);
+    m.input_tokens += d.input_tokens;
+    m.output_tokens += d.output_tokens;
+    m.cache_read_tokens += d.cache_read_tokens;
+    m.cache_create_tokens += d.cache_create_tokens;
+    m.api_calls += d.api_calls;
+  }
+  const monthly = Array.from(monthlyMap.entries())
+    .map(([month, m]) => ({ month, ...m }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  return {
+    project_id: projectId,
+    project_name: projectName(projectId),
+    claude_dir: claudeDir,
+    sessions,
+    totals,
+    weekly,
+    by_model: byModel,
+    daily,
+    monthly,
+  };
+}
+
+// --- Utilization API ---
+
+// --- Dashboard config (server-side persistence) ---
+const DASHBOARD_CONFIG_PATH = path.join(BASE, '.dashboard-config.json');
+
+async function loadDashboardConfig() {
+  try {
+    const raw = await readFile(DASHBOARD_CONFIG_PATH, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function saveDashboardConfig(config) {
+  const existing = await loadDashboardConfig();
+  const merged = { ...existing, ...config };
+  await writeFile(DASHBOARD_CONFIG_PATH, JSON.stringify(merged, null, 2) + '\n');
+  return merged;
+}
+
+let utilizationCache = { data: null, fetchedAt: 0 };
+
+async function fetchUtilization() {
+  const now = Date.now();
+  if (utilizationCache.data && (now - utilizationCache.fetchedAt) < 60_000) {
+    return utilizationCache.data;
+  }
+
+  try {
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    const raw = await readFile(credPath, 'utf-8');
+    const creds = JSON.parse(raw);
+    const token = creds?.claudeAiOauth?.accessToken;
+
+    if (!token) {
+      const result = { available: false, error: 'No access token found' };
+      utilizationCache = { data: result, fetchedAt: now };
+      return result;
+    }
+
+    const data = await new Promise((resolve, reject) => {
+      const req = https.get('https://api.anthropic.com/api/oauth/usage', {
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Accept': 'application/json',
+        },
+      }, (res) => {
+        let body = '';
+        res.on('data', chunk => { body += chunk; });
+        res.on('end', () => {
+          try {
+            if (res.statusCode !== 200) {
+              resolve({ available: false, error: 'HTTP ' + res.statusCode + ': ' + body.slice(0, 200) });
+              return;
+            }
+            const parsed = JSON.parse(body);
+            resolve({
+              available: true,
+              five_hour: {
+                utilization: parsed.five_hour?.utilization ?? parsed.fiveHour?.utilization ?? null,
+                resets_at: parsed.five_hour?.resets_at ?? parsed.fiveHour?.resetsAt ?? null,
+              },
+              seven_day: {
+                utilization: parsed.seven_day?.utilization ?? parsed.sevenDay?.utilization ?? null,
+                resets_at: parsed.seven_day?.resets_at ?? parsed.sevenDay?.resetsAt ?? null,
+              },
+            });
+          } catch (e) {
+            resolve({ available: false, error: 'Parse error: ' + e.message });
+          }
+        });
+      });
+
+      req.on('error', (e) => {
+        resolve({ available: false, error: 'Request error: ' + e.message });
+      });
+
+      req.setTimeout(10_000, () => {
+        req.destroy();
+        resolve({ available: false, error: 'Request timeout' });
+      });
+    });
+
+    utilizationCache = { data, fetchedAt: now };
+    return data;
+  } catch (e) {
+    const result = { available: false, error: e.message };
+    utilizationCache = { data: result, fetchedAt: now };
+    return result;
+  }
+}
+
+// --- HTTP server ---
+
+function sendJson(res, data, status = 200) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-cache',
+  });
+  res.end(body);
+}
+
+function send404(res) {
+  sendJson(res, { error: 'not found' }, 404);
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = url.pathname;
+
+  try {
+    // --- API routes ---
+    if (pathname === '/api/projects') {
+      const projects = await listProjects();
+      return sendJson(res, projects);
+    }
+
+    if (pathname === '/api/sessions') {
+      const projectId = url.searchParams.get('project');
+      if (!projectId) return sendJson(res, { error: 'project param required' }, 400);
+      const sessions = await listSessions(projectId);
+      return sendJson(res, sessions);
+    }
+
+    if (pathname === '/api/events') {
+      const projectId = url.searchParams.get('project');
+      const sessionId = url.searchParams.get('session');
+      const from = parseInt(url.searchParams.get('from') || '0', 10);
+      if (!projectId || !sessionId) return sendJson(res, { error: 'project and session params required' }, 400);
+      const events = await readEvents(projectId, sessionId, from);
+      return sendJson(res, events);
+    }
+
+    // --- Dashboard config API ---
+    if (pathname === '/api/config') {
+      if (req.method === 'POST' || req.method === 'PUT') {
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        try {
+          const updates = JSON.parse(body);
+          const config = await saveDashboardConfig(updates);
+          return sendJson(res, config);
+        } catch {
+          return sendJson(res, { error: 'Invalid JSON' }, 400);
+        }
+      }
+      const config = await loadDashboardConfig();
+      return sendJson(res, config);
+    }
+
+    // --- Utilization API ---
+    if (pathname === '/api/usage/utilization') {
+      const util = await fetchUtilization();
+      // Merge server-side config (weekly_limit) into response
+      const config = await loadDashboardConfig();
+      util.weekly_limit = config.weekly_limit || 0;
+      return sendJson(res, util);
+    }
+
+    // --- Usage API ---
+    if (pathname === '/api/usage') {
+      const projectId = url.searchParams.get('project');
+      if (projectId) {
+        const usage = await getProjectUsage(projectId);
+        if (!usage) return sendJson(res, { error: 'project not found or no transcript data' }, 404);
+        return sendJson(res, usage);
+      }
+      // All projects — fetch in parallel
+      const projects = await listProjects();
+      const usageResults = await Promise.all(
+        projects.map(p => getProjectUsage(p.project_id))
+      );
+      const results = usageResults.filter(Boolean);
+      return sendJson(res, results);
+    }
+
+    // --- SSE stream ---
+    if (pathname === '/api/stream') {
+      const projectId = url.searchParams.get('project');
+      const sessionId = url.searchParams.get('session');
+      if (!projectId || !sessionId) return sendJson(res, { error: 'project and session params required' }, 400);
+
+      // Disable Node.js response buffering for SSE
+      res.socket.setNoDelay(true);
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'X-Accel-Buffering': 'no',
+      });
+      res.flushHeaders();
+
+      let lastSeq = parseInt(url.searchParams.get('from') || '0', 10);
+      let alive = true;
+
+      req.on('close', () => { alive = false; });
+
+      // Send initial keepalive
+      res.write(':ok\n\n');
+
+      const poll = async () => {
+        if (!alive) return;
+        try {
+          const events = await readEvents(projectId, sessionId, lastSeq);
+          for (const event of events) {
+            if (!alive) return;
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+            if (event.sequence > lastSeq) lastSeq = event.sequence;
+          }
+        } catch { /* ignore errors, keep polling */ }
+        if (alive) setTimeout(poll, 2000);
+      };
+
+      poll();
+      return;
+    }
+
+    // --- Dashboard HTML ---
+    if (pathname === '/' || pathname === '/index.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(DASHBOARD_HTML);
+      return;
+    }
+
+    send404(res);
+  } catch (err) {
+    console.error('Request error:', err);
+    sendJson(res, { error: 'internal error' }, 500);
+  }
+});
+
+// Write PID file so hooks can detect if dashboard is running
+function writePid() {
+  try { writeFileSync(PID_FILE, `${process.pid}\n${port}\n`); } catch {}
+}
+
+function removePid() {
+  try { unlinkSync(PID_FILE); } catch {}
+}
+
+process.on('SIGINT', () => { removePid(); process.exit(0); });
+process.on('SIGTERM', () => { removePid(); process.exit(0); });
+process.on('exit', removePid);
+
+server.listen(port, () => {
+  writePid();
+  // Mark dashboard as enabled so deploy.sh can auto-start after updates
+  try { writeFileSync(path.join(BASE, '.dashboard-enabled'), `${port}\n`); } catch {}
+  console.log(`GlobalContext Dashboard running at http://localhost:${port}`);
+  console.log(`Data directory: ${BASE}`);
+
+  // Pre-warm usage cache in background (avoids slow first load)
+  listProjects().then(projects =>
+    Promise.all(projects.map(p => getProjectUsage(p.project_id).catch(() => null)))
+  ).then(() => console.log('Usage cache warmed')).catch(() => {});
+});
+
+// --- Inline Dashboard HTML ---
+const DASHBOARD_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GlobalContext Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #21262d;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text2: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+    --cyan: #39d353;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    grid-template-rows: 48px 1fr;
+    height: 100vh;
+  }
+
+  .layout.full-width {
+    grid-template-columns: 1fr;
+  }
+
+  /* Header */
+  .header {
+    grid-column: 1 / -1;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+  }
+
+  .header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .header .meta {
+    color: var(--text2);
+    font-size: 12px;
+  }
+
+  .header .status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .header .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text2);
+  }
+
+  .header .dot.live { background: var(--green); animation: pulse 2s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+
+  .sidebar-section {
+    padding: 8px 12px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .sidebar-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-left: 2px solid transparent;
+    transition: background 0.1s;
+  }
+
+  .sidebar-item:hover { background: var(--bg3); }
+
+  .sidebar-item.active {
+    background: var(--bg3);
+    border-left-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .sidebar-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-item .count {
+    font-size: 11px;
+    color: var(--text2);
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+  }
+
+  .session-item {
+    padding: 6px 12px 6px 20px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: background 0.1s;
+  }
+
+  .session-item:hover { background: var(--bg3); }
+
+  .session-item.active {
+    background: var(--bg3);
+    border-left-color: var(--green);
+  }
+
+  .session-item .sid {
+    font-size: 12px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .session-item .smeta {
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 2px;
+  }
+
+  /* Main area */
+  .main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .session-header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+    min-height: 40px;
+  }
+
+  .session-header .label {
+    font-size: 11px;
+    color: var(--text2);
+  }
+
+  .session-header .value {
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .session-header .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+
+  .badge.active { background: rgba(63,185,80,0.2); color: var(--green); }
+  .badge.ended { background: rgba(139,148,158,0.2); color: var(--text2); }
+
+  .event-feed {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  .event-feed table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .event-feed thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .event-feed th {
+    background: var(--bg3);
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .event-feed td {
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    vertical-align: top;
+  }
+
+  .event-feed tr { transition: background 0.1s; }
+  .event-feed tr:hover { background: var(--bg2); }
+  .event-feed tr.new { animation: fadeIn 0.3s ease-out; }
+
+  @keyframes fadeIn {
+    from { background: rgba(88,166,255,0.1); }
+    to { background: transparent; }
+  }
+
+  .col-seq { width: 50px; color: var(--text2); text-align: right; }
+  .col-time { width: 80px; color: var(--text2); }
+  .col-project { width: 120px; }
+  .col-type { width: 170px; }
+  .col-summary { overflow: hidden; }
+
+  /* Event type colors */
+  .etype { font-weight: 500; padding: 1px 6px; border-radius: 3px; font-size: 11px; white-space: nowrap; }
+  .etype-SessionStarted { color: var(--green); background: rgba(63,185,80,0.1); }
+  .etype-SessionEnded { color: var(--text2); background: rgba(139,148,158,0.1); }
+  .etype-UserPromptReceived { color: var(--accent); background: rgba(88,166,255,0.1); }
+  .etype-ToolCallRequested { color: var(--yellow); background: rgba(210,153,34,0.1); }
+  .etype-ToolCallCompleted { color: var(--green); background: rgba(63,185,80,0.1); }
+  .etype-ToolCallFailed { color: var(--red); background: rgba(248,81,73,0.1); }
+  .etype-AgentSpawned { color: var(--purple); background: rgba(188,140,255,0.1); }
+  .etype-AgentCompleted { color: var(--purple); background: rgba(188,140,255,0.1); }
+  .etype-TurnCompleted { color: var(--text2); background: rgba(139,148,158,0.1); }
+  .etype-CompactionTriggered { color: var(--orange); background: rgba(240,136,62,0.1); }
+
+  .empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text2);
+    font-size: 14px;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .empty-state .hint { font-size: 12px; color: var(--text2); opacity: 0.6; }
+
+  /* Header tabs */
+  .header-tabs {
+    display: flex;
+    gap: 2px;
+    margin-left: 16px;
+  }
+
+  .header-tab {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--text2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .header-tab:hover {
+    color: var(--text);
+    background: var(--bg3);
+  }
+
+  .header-tab.active {
+    color: var(--accent);
+    background: var(--bg3);
+    border-color: var(--border);
+  }
+
+  /* Usage view */
+  .usage-view {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: none;
+  }
+
+  .usage-view.visible {
+    display: block;
+  }
+
+  .usage-section {
+    margin-bottom: 24px;
+  }
+
+  .usage-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .usage-section-title .tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    background: rgba(88,166,255,0.15);
+    color: var(--accent);
+  }
+
+  .usage-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+  }
+
+  .usage-table thead th {
+    background: var(--bg3);
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .usage-table thead th.num {
+    text-align: right;
+  }
+
+  .usage-table tbody td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    vertical-align: middle;
+  }
+
+  .usage-table tbody td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+
+  .usage-table tbody td.project-name {
+    font-weight: 500;
+    color: var(--accent);
+  }
+
+  .usage-table tbody tr:hover {
+    background: var(--bg2);
+  }
+
+  .usage-table tbody tr.totals-row {
+    border-top: 2px solid var(--border);
+    font-weight: 600;
+  }
+
+  .usage-table tbody tr.totals-row td {
+    padding-top: 10px;
+    color: var(--text);
+  }
+
+  .usage-cost {
+    color: var(--green);
+    font-weight: 500;
+  }
+
+  .usage-cost.high {
+    color: var(--orange);
+  }
+
+  .usage-cost.very-high {
+    color: var(--red);
+  }
+
+  /* Weekly progress section */
+  .weekly-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .weekly-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+  }
+
+  .weekly-card .wc-label {
+    font-size: 11px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 6px;
+  }
+
+  .weekly-card .wc-value {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .weekly-card .wc-cost {
+    font-size: 12px;
+  }
+
+  .progress-bar-bg {
+    width: 100%;
+    height: 6px;
+    background: var(--bg3);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+    transition: width 0.3s;
+  }
+
+  .progress-bar-fill.warn { background: var(--orange); }
+  .progress-bar-fill.danger { background: var(--red); }
+
+  .pct-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(100,160,255,0.15);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .usage-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--text2);
+    font-size: 13px;
+  }
+
+  /* Daily usage timeline */
+  .timeline-section {
+    margin-bottom: 24px;
+  }
+
+  .timeline-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .timeline-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 90px;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+  }
+
+  .timeline-date {
+    font-size: 11px;
+    color: var(--text2);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .timeline-bar-bg {
+    height: 14px;
+    background: rgba(139,148,158,0.08);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .timeline-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    min-width: 0;
+    transition: width 0.3s;
+  }
+
+  .timeline-bar.empty {
+    background: var(--border);
+    height: 2px;
+    margin-top: 6px;
+  }
+
+  .timeline-value {
+    font-size: 11px;
+    color: var(--text2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Month selector */
+  .month-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 16px;
+  }
+
+  .month-btn {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-family: inherit;
+    color: var(--text2);
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .month-btn:hover {
+    color: var(--text);
+    background: var(--bg3);
+  }
+
+  .month-btn.active {
+    color: var(--accent);
+    background: var(--bg3);
+    border-color: var(--accent);
+  }
+
+  /* Utilization bars */
+  .utilization-section {
+    margin-bottom: 20px;
+  }
+
+  .util-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .util-label {
+    font-size: 12px;
+    color: var(--text2);
+    min-width: 120px;
+  }
+
+  .util-bar-bg {
+    flex: 1;
+    height: 16px;
+    background: var(--bg3);
+    border-radius: 4px;
+    overflow: hidden;
+    max-width: 400px;
+  }
+
+  .util-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+  }
+
+  .util-bar.green { background: var(--green); }
+  .util-bar.yellow { background: var(--yellow); }
+  .util-bar.red { background: var(--red); }
+
+  .util-pct {
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 48px;
+    color: var(--text);
+  }
+
+  .util-reset {
+    font-size: 11px;
+    color: var(--text2);
+  }
+
+  /* Model usage table */
+  .model-color-opus { color: var(--purple); }
+  .model-color-sonnet { color: var(--accent); }
+  .model-color-haiku { color: var(--green); }
+  .model-color-unknown { color: var(--text2); }
+
+  .model-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+
+  .model-dot-opus { background: var(--purple); }
+  .model-dot-sonnet { background: var(--accent); }
+  .model-dot-haiku { background: var(--green); }
+  .model-dot-unknown { background: var(--text2); }
+
+  .model-name {
+    font-weight: 500;
+    font-size: 12px;
+  }
+
+  /* Expandable session details */
+  .usage-table tbody tr.session-detail-row td {
+    padding: 2px 12px 2px 28px;
+    font-size: 11px;
+    color: var(--text2);
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+  }
+
+  .usage-table tbody tr.session-detail-row:hover {
+    background: rgba(33,38,45,0.5);
+  }
+
+  .expand-btn {
+    background: none;
+    border: none;
+    color: var(--text2);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 0 4px;
+  }
+
+  .expand-btn:hover {
+    color: var(--accent);
+  }
+
+  /* --- Rich event detail styles --- */
+
+  /* Bash / Terminal */
+  .ev-bash {
+    background: #1a1e24;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-family: inherit;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ev-bash code {
+    color: var(--green);
+    font-size: 11px;
+  }
+
+  .ev-bash-prompt {
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 4px;
+    user-select: none;
+  }
+
+  .ev-bash-result {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ev-bash-output {
+    margin-top: 3px;
+    color: var(--text2);
+    font-size: 11px;
+    max-height: 40px;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-break: break-all;
+    opacity: 0.7;
+  }
+
+  .ev-bash-stderr {
+    color: var(--red);
+    opacity: 0.85;
+  }
+
+  .ev-exit-ok {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(63,185,80,0.15);
+    color: var(--green);
+  }
+
+  .ev-exit-err {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(248,81,73,0.2);
+    color: var(--red);
+    font-weight: 600;
+  }
+
+  /* File operations */
+  .ev-file {
+    font-family: inherit;
+  }
+
+  .ev-file-dir {
+    color: var(--text2);
+    opacity: 0.7;
+  }
+
+  .ev-file-name {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .ev-icon {
+    font-size: 12px;
+    margin-right: 2px;
+  }
+
+  /* Diff indicators */
+  .ev-diff {
+    font-size: 10px;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--bg3);
+  }
+
+  .ev-diff-del {
+    color: var(--red);
+    font-weight: 500;
+  }
+
+  .ev-diff-add {
+    color: var(--green);
+    font-weight: 500;
+  }
+
+  /* Search */
+  .ev-search {
+    background: rgba(210,153,34,0.15);
+    color: var(--yellow);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    font-size: 11px;
+  }
+
+  .ev-search-result {
+    color: var(--green);
+    font-weight: 500;
+  }
+
+  /* Web */
+  .ev-web-icon {
+    font-size: 13px;
+    margin-right: 3px;
+  }
+
+  .ev-web-link {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--accent);
+  }
+
+  .ev-web-link:hover {
+    border-bottom-style: solid;
+  }
+
+  .ev-web-query {
+    color: var(--text);
+    font-style: italic;
+  }
+
+  .ev-web-results {
+    margin-top: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .ev-web-result-item {
+    font-size: 11px;
+    color: var(--accent);
+    text-decoration: none;
+    opacity: 0.8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ev-web-result-item:hover {
+    opacity: 1;
+    text-decoration: underline;
+  }
+
+  .ev-web-result-item::before {
+    content: "\\2192 ";
+    color: var(--text2);
+  }
+
+  /* Agent */
+  .ev-agent-icon {
+    font-size: 13px;
+    margin-right: 3px;
+  }
+
+  /* Prompt / Conversation */
+  .ev-prompt-icon {
+    font-size: 13px;
+    margin-right: 3px;
+  }
+
+  .ev-prompt {
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 60px;
+    overflow: hidden;
+    display: inline;
+  }
+
+  .ev-turn-preview {
+    margin-top: 3px;
+    color: var(--text2);
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 40px;
+    overflow: hidden;
+    opacity: 0.7;
+  }
+
+  /* System-injected messages */
+  .ev-sysmsg {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+
+  .ev-sysmsg-task {
+    background: rgba(188,140,255,0.08);
+    border-left: 2px solid var(--purple);
+  }
+
+  .ev-sysmsg-reminder {
+    background: rgba(139,148,158,0.08);
+    border-left: 2px solid var(--text2);
+  }
+
+  .ev-sysmsg-meta {
+    background: rgba(139,148,158,0.06);
+    border-left: 2px solid var(--border);
+  }
+
+  .ev-sysmsg-icon {
+    font-size: 13px;
+    opacity: 0.8;
+  }
+
+  .ev-sysmsg-label {
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text2);
+  }
+
+  .ev-sysmsg-task .ev-sysmsg-icon {
+    color: var(--purple);
+  }
+
+  .ev-sysmsg-task .ev-sysmsg-label {
+    color: var(--purple);
+  }
+
+  .ev-sysmsg-reminder .ev-sysmsg-icon {
+    color: var(--text2);
+  }
+
+  .ev-systask-status {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .ev-systask-status-completed {
+    background: rgba(63,185,80,0.15);
+    color: var(--green);
+  }
+
+  .ev-systask-status-inprogress {
+    background: rgba(210,153,34,0.15);
+    color: var(--yellow);
+  }
+
+  .ev-systask-status-failed {
+    background: rgba(248,81,73,0.15);
+    color: var(--red);
+  }
+
+  .ev-systask-status-other {
+    background: rgba(139,148,158,0.15);
+    color: var(--text2);
+  }
+
+  /* Session */
+  .ev-session-icon {
+    font-size: 11px;
+    margin-right: 3px;
+  }
+
+  /* Compaction */
+  .ev-compact-icon {
+    color: var(--orange);
+    font-size: 13px;
+    margin-right: 3px;
+  }
+
+  .ev-compact {
+    color: var(--orange);
+    font-weight: 600;
+  }
+
+  /* Error */
+  .ev-error {
+    background: rgba(248,81,73,0.08);
+    border: 1px solid rgba(248,81,73,0.25);
+    border-radius: 4px;
+    padding: 3px 8px;
+    color: var(--red);
+  }
+
+  .ev-error-icon {
+    font-size: 12px;
+    margin-right: 3px;
+  }
+
+  /* Task tools */
+  .ev-task {
+    border-left: 2px solid rgba(188,140,255,0.4);
+    padding-left: 6px;
+    background: rgba(188,140,255,0.03);
+    border-radius: 2px;
+  }
+
+  .ev-task-icon {
+    font-size: 13px;
+    margin-right: 3px;
+  }
+
+  .ev-task-agent-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(188,140,255,0.2);
+    color: var(--purple);
+    font-weight: 600;
+  }
+
+  .ev-task-bg-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(139,148,158,0.25);
+    color: var(--text2);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .ev-task-status {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .ev-task-status-completed {
+    background: rgba(63,185,80,0.15);
+    color: var(--green);
+  }
+
+  .ev-task-status-inprogress {
+    background: rgba(210,153,34,0.15);
+    color: var(--yellow);
+  }
+
+  .ev-task-status-deleted {
+    background: rgba(248,81,73,0.15);
+    color: var(--red);
+  }
+
+  .ev-task-status-pending {
+    background: rgba(139,148,158,0.15);
+    color: var(--text2);
+  }
+
+  /* Shared utility */
+  .ev-code {
+    background: var(--bg3);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: var(--purple);
+    font-weight: 500;
+  }
+
+  .ev-output {
+    color: var(--text2);
+    font-size: 11px;
+  }
+
+  .ev-success {
+    color: var(--green);
+  }
+
+  /* Make ToolCallFailed rows tinted */
+  .event-feed tr.ev-row-error {
+    background: rgba(248,81,73,0.04);
+  }
+
+  .event-feed tr.ev-row-error:hover {
+    background: rgba(248,81,73,0.08);
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <div class="header">
+    <h1>GlobalContext</h1>
+    <span class="meta" id="headerMeta">Dashboard</span>
+    <div class="header-tabs">
+      <button class="header-tab active" id="tabEvents" onclick="switchView('events')">Events</button>
+      <button class="header-tab" id="tabUsage" onclick="switchView('usage')">Usage</button>
+    </div>
+    <div class="status">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">Idle</span>
+    </div>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-section">Projects</div>
+    <div id="projectList"></div>
+    <div class="sidebar-section" id="sessionsLabel" style="display:none">Sessions</div>
+    <div id="sessionList"></div>
+  </div>
+
+  <div class="main">
+    <div class="session-header" id="sessionHeader">
+      <span class="label">Select a project and session</span>
+    </div>
+    <div class="event-feed" id="eventFeed">
+      <div class="empty-state">
+        <span>No events to display</span>
+        <span class="hint">Select a project and session from the sidebar</span>
+      </div>
+    </div>
+    <div class="usage-view" id="usageView">
+      <div class="usage-loading">Loading usage data...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const state = {
+  projects: [],
+  sessions: [],
+  events: [],
+  selectedProject: null,
+  selectedSession: null,
+  streaming: false,
+  eventSource: null,
+  autoScroll: true,
+};
+
+const $ = id => document.getElementById(id);
+
+// --- API ---
+async function api(path) {
+  const res = await fetch(path);
+  return res.json();
+}
+
+// --- Render ---
+function renderProjects() {
+  const el = $('projectList');
+  el.innerHTML = state.projects.map(p =>
+    '<div class="sidebar-item' + (state.selectedProject === p.project_id ? ' active' : '') + '" data-pid="' + p.project_id + '">' +
+      '<span class="name">' + esc(p.name) + '</span>' +
+      '<span class="count">' + p.session_count + '</span>' +
+    '</div>'
+  ).join('');
+
+  el.querySelectorAll('.sidebar-item').forEach(item => {
+    item.onclick = () => selectProject(item.dataset.pid);
+  });
+}
+
+function renderSessions() {
+  const el = $('sessionList');
+  $('sessionsLabel').style.display = state.sessions.length ? '' : 'none';
+
+  el.innerHTML = state.sessions.map(s => {
+    const sid = s.session_id || '';
+    const shortSid = sid.length > 20 ? sid.slice(0, 8) + '...' + sid.slice(-8) : sid;
+    const count = s.event_count || 0;
+    const started = s.started_at ? new Date(s.started_at).toLocaleTimeString() : '';
+    const ended = s.ended_at ? ' (ended)' : '';
+    const active = state.selectedSession === sid;
+
+    return '<div class="session-item' + (active ? ' active' : '') + '" data-sid="' + sid + '">' +
+      '<div class="sid">' + esc(shortSid) + '</div>' +
+      '<div class="smeta">' + count + ' events &middot; ' + started + ended + '</div>' +
+    '</div>';
+  }).join('');
+
+  el.querySelectorAll('.session-item').forEach(item => {
+    item.onclick = () => selectSession(item.dataset.sid);
+  });
+}
+
+function renderSessionHeader() {
+  const el = $('sessionHeader');
+  if (!state.selectedSession) {
+    el.innerHTML = '<span class="label">Select a project and session</span>';
+    return;
+  }
+
+  const s = state.sessions.find(s => s.session_id === state.selectedSession);
+  if (!s) return;
+
+  const isActive = !s.ended_at;
+  const proj = state.selectedProject ? state.selectedProject.replace(/-[a-f0-9]{6}$/, '') : '';
+
+  el.innerHTML =
+    '<span class="badge ' + (isActive ? 'active' : 'ended') + '">' + (isActive ? 'LIVE' : 'ENDED') + '</span>' +
+    '<span><span class="label">Project: </span><span class="value">' + esc(proj) + '</span></span>' +
+    '<span><span class="label">Events: </span><span class="value">' + (s.event_count || state.events.length) + '</span></span>' +
+    (s.last_prompt ? '<span><span class="label">Last: </span><span class="value">' + esc(truncStr(s.last_prompt, 60)) + '</span></span>' : '');
+}
+
+function renderEvents() {
+  const el = $('eventFeed');
+  if (!state.events.length) {
+    el.innerHTML = '<div class="empty-state"><span>No events in this session</span></div>';
+    return;
+  }
+
+  let html = '<table><thead><tr>' +
+    '<th class="col-seq">#</th>' +
+    '<th class="col-time">Time</th>' +
+    '<th class="col-project">Project</th>' +
+    '<th class="col-type">Event</th>' +
+    '<th class="col-summary">Detail</th>' +
+    '</tr></thead><tbody>';
+
+  for (const e of state.events) {
+    const ts = e.timestamp ? e.timestamp.slice(11, 19) : '';
+    const proj = (e.project_id || '').replace(/-[a-f0-9]{6}$/, '');
+    const etypeClass = 'etype-' + (e.event_type || '');
+    const summary = e._summary || {};
+    const summaryHtml = typeof summary === 'object' ? (summary.html || esc(summary.text || '')) : esc(summary);
+    const rowClass = e.event_type === 'ToolCallFailed' ? ' class="ev-row-error"' : '';
+    html += '<tr' + rowClass + '>' +
+      '<td class="col-seq">' + (e.sequence || '') + '</td>' +
+      '<td class="col-time">' + ts + '</td>' +
+      '<td class="col-project">' + esc(proj) + '</td>' +
+      '<td class="col-type"><span class="etype ' + etypeClass + '">' + esc(e.event_type || '') + '</span></td>' +
+      '<td class="col-summary">' + summaryHtml + '</td>' +
+      '</tr>';
+  }
+
+  html += '</tbody></table>';
+  el.innerHTML = html;
+
+  if (state.autoScroll) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function appendEvent(event) {
+  state.events.push(event);
+
+  const el = $('eventFeed');
+  let tbody = el.querySelector('tbody');
+
+  if (!tbody) {
+    renderEvents();
+    return;
+  }
+
+  const ts = event.timestamp ? event.timestamp.slice(11, 19) : '';
+  const proj = (event.project_id || '').replace(/-[a-f0-9]{6}$/, '');
+  const etypeClass = 'etype-' + (event.event_type || '');
+  const summary = event._summary || {};
+  const summaryHtml = typeof summary === 'object' ? (summary.html || esc(summary.text || '')) : esc(summary);
+  const tr = document.createElement('tr');
+  tr.className = 'new' + (event.event_type === 'ToolCallFailed' ? ' ev-row-error' : '');
+  tr.innerHTML =
+    '<td class="col-seq">' + (event.sequence || '') + '</td>' +
+    '<td class="col-time">' + ts + '</td>' +
+    '<td class="col-project">' + esc(proj) + '</td>' +
+    '<td class="col-type"><span class="etype ' + etypeClass + '">' + esc(event.event_type || '') + '</span></td>' +
+    '<td class="col-summary">' + summaryHtml + '</td>';
+
+  tbody.appendChild(tr);
+
+  // Update header event count
+  renderSessionHeader();
+
+  if (state.autoScroll) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+// --- Actions ---
+async function loadProjects() {
+  state.projects = await api('/api/projects');
+  renderProjects();
+}
+
+async function selectProject(projectId) {
+  state.selectedProject = projectId;
+  state.selectedSession = null;
+  state.events = [];
+  stopStream();
+  renderProjects();
+  renderEvents();
+  renderSessionHeader();
+
+  state.sessions = await api('/api/sessions?project=' + encodeURIComponent(projectId));
+  renderSessions();
+
+  // Auto-select the latest session
+  if (state.sessions.length > 0) {
+    selectSession(state.sessions[0].session_id);
+  }
+}
+
+async function selectSession(sessionId) {
+  state.selectedSession = sessionId;
+  stopStream();
+  renderSessions();
+
+  // Load existing events
+  state.events = await api('/api/events?project=' + encodeURIComponent(state.selectedProject) + '&session=' + encodeURIComponent(sessionId));
+  renderEvents();
+  renderSessionHeader();
+
+  // Start SSE stream
+  startStream();
+}
+
+function startStream() {
+  stopStream();
+  if (!state.selectedProject || !state.selectedSession) return;
+
+  const lastSeq = state.events.length ? state.events[state.events.length - 1].sequence : 0;
+  const url = '/api/stream?project=' + encodeURIComponent(state.selectedProject) +
+    '&session=' + encodeURIComponent(state.selectedSession) +
+    '&from=' + lastSeq;
+
+  const es = new EventSource(url);
+  state.eventSource = es;
+  state.streaming = true;
+
+  $('statusDot').className = 'dot live';
+  $('statusText').textContent = 'Streaming';
+
+  es.onmessage = (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      // Dedup: don't add if we already have this sequence
+      if (state.events.some(ev => ev.sequence === event.sequence)) return;
+      appendEvent(event);
+    } catch {}
+  };
+
+  es.onerror = () => {
+    $('statusDot').className = 'dot';
+    $('statusText').textContent = 'Reconnecting...';
+  };
+
+  es.onopen = () => {
+    $('statusDot').className = 'dot live';
+    $('statusText').textContent = 'Streaming';
+  };
+}
+
+function stopStream() {
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+  state.streaming = false;
+  $('statusDot').className = 'dot';
+  $('statusText').textContent = 'Idle';
+}
+
+// --- Auto-scroll detection ---
+$('eventFeed').addEventListener('scroll', () => {
+  const el = $('eventFeed');
+  state.autoScroll = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
+});
+
+// --- Utils ---
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function truncStr(s, n) {
+  if (!s || s.length <= n) return s || '';
+  return s.slice(0, n) + '...';
+}
+
+// --- View switching ---
+let currentView = 'events';
+
+function switchView(view) {
+  currentView = view;
+  const eventsEls = [$('eventFeed'), $('sessionHeader')];
+  const usageEl = $('usageView');
+  const sidebarEl = $('sidebar');
+  const layout = document.querySelector('.layout');
+
+  $('tabEvents').className = 'header-tab' + (view === 'events' ? ' active' : '');
+  $('tabUsage').className = 'header-tab' + (view === 'usage' ? ' active' : '');
+
+  if (view === 'usage') {
+    eventsEls.forEach(el => el.style.display = 'none');
+    usageEl.classList.add('visible');
+    sidebarEl.style.display = 'none';
+    layout.classList.add('full-width');
+    loadUsageData();
+  } else {
+    eventsEls.forEach(el => el.style.display = '');
+    usageEl.classList.remove('visible');
+    sidebarEl.style.display = '';
+    layout.classList.remove('full-width');
+  }
+}
+
+// --- Usage ---
+let usageData = null;
+let usageExpanded = {};
+let usageSelectedMonth = null; // null = all time, 'YYYY-MM' = filter to month
+
+const MODEL_PRICING = {
+  'opus': { input: 15, output: 75, cache_read: 1.5, cache_create: 18.75 },
+  'sonnet': { input: 3, output: 15, cache_read: 0.3, cache_create: 3.75 },
+  'haiku': { input: 0.8, output: 4, cache_read: 0.08, cache_create: 1 },
+};
+
+function getModelTier(model) {
+  if (!model) return 'opus';
+  const m = model.toLowerCase();
+  if (m.includes('haiku')) return 'haiku';
+  if (m.includes('sonnet')) return 'sonnet';
+  return 'opus';
+}
+
+function getModelColorClass(model) {
+  if (!model || model === 'unknown') return 'unknown';
+  const m = model.toLowerCase();
+  if (m.includes('haiku')) return 'haiku';
+  if (m.includes('sonnet')) return 'sonnet';
+  if (m.includes('opus')) return 'opus';
+  return 'unknown';
+}
+
+function calcCost(input, output, cacheRead, cacheCreate, model) {
+  const tier = getModelTier(model);
+  const p = MODEL_PRICING[tier];
+  return (
+    (input / 1_000_000) * p.input +
+    (output / 1_000_000) * p.output +
+    (cacheRead / 1_000_000) * p.cache_read +
+    (cacheCreate / 1_000_000) * p.cache_create
+  );
+}
+
+function calcProjectCost(proj) {
+  let cost = 0;
+  for (const s of proj.sessions) {
+    cost += calcCost(s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_create_tokens, s.model);
+  }
+  return cost;
+}
+
+function formatTokens(n) {
+  if (n === 0) return '0';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+function formatCost(c) {
+  if (c >= 100) return '$' + c.toFixed(0);
+  if (c >= 10) return '$' + c.toFixed(1);
+  return '$' + c.toFixed(2);
+}
+
+function costClass(c) {
+  if (c >= 50) return 'usage-cost very-high';
+  if (c >= 10) return 'usage-cost high';
+  return 'usage-cost';
+}
+
+
+let utilizationData = null;
+
+async function loadUsageData() {
+  const el = $('usageView');
+  el.innerHTML = '<div class="usage-loading">Loading usage data...</div>';
+
+  try {
+    const [usage, util] = await Promise.all([
+      api('/api/usage'),
+      api('/api/usage/utilization').catch(() => ({ available: false })),
+    ]);
+    usageData = usage;
+    utilizationData = util;
+    renderUsage();
+  } catch (err) {
+    el.innerHTML = '<div class="usage-loading">Failed to load usage data</div>';
+  }
+}
+
+function renderUsage() {
+  const el = $('usageView');
+  if (!usageData || !usageData.length) {
+    el.innerHTML = '<div class="empty-state"><span>No usage data available</span><span class="hint">No Claude transcript files found for tracked projects</span></div>';
+    return;
+  }
+
+  // Calculate weekly totals across all projects
+  const weeklyTotals = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_create_tokens: 0 };
+  let weeklyCost = 0;
+  for (const p of usageData) {
+    weeklyTotals.input_tokens += p.weekly.input_tokens;
+    weeklyTotals.output_tokens += p.weekly.output_tokens;
+    weeklyTotals.cache_read_tokens += p.weekly.cache_read_tokens;
+    weeklyTotals.cache_create_tokens += p.weekly.cache_create_tokens;
+    // Weekly cost per-session (only sessions with activity this week)
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7*24*60*60*1000);
+    for (const s of p.sessions) {
+      if (s.last_api_call_at && new Date(s.last_api_call_at) >= weekAgo) {
+        weeklyCost += calcCost(s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_create_tokens, s.model);
+      }
+    }
+  }
+
+
+  let html = '';
+
+  // --- Daily Usage Timeline (last 30 days) ---
+  // Aggregate daily data across all projects
+  const dailyAgg = {};
+  for (const p of usageData) {
+    if (p.daily) {
+      for (const d of p.daily) {
+        if (!dailyAgg[d.date]) {
+          dailyAgg[d.date] = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_create_tokens: 0, api_calls: 0 };
+        }
+        dailyAgg[d.date].input_tokens += d.input_tokens;
+        dailyAgg[d.date].output_tokens += d.output_tokens;
+        dailyAgg[d.date].cache_read_tokens += d.cache_read_tokens;
+        dailyAgg[d.date].cache_create_tokens += d.cache_create_tokens;
+        dailyAgg[d.date].api_calls += d.api_calls;
+      }
+    }
+  }
+
+  // Build last 30 days array
+  const today = new Date();
+  const last30 = [];
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(today);
+    dt.setDate(dt.getDate() - i);
+    const key = dt.toISOString().slice(0, 10);
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const label = dayNames[dt.getDay()] + ' ' + monthNames[dt.getMonth()] + ' ' + dt.getDate();
+    const data = dailyAgg[key] || null;
+    const total = data ? (data.input_tokens + data.output_tokens + data.cache_read_tokens + data.cache_create_tokens) : 0;
+    last30.push({ date: key, label, total, data });
+  }
+
+  const maxDayTokens = Math.max(1, ...last30.map(d => d.total));
+
+  html += '<div class="usage-section timeline-section">';
+  html += '<div class="usage-section-title">Daily Usage <span class="tag">30 days</span></div>';
+  html += '<div class="timeline-chart">';
+  for (const day of last30) {
+    const pct = day.total > 0 ? ((day.total / maxDayTokens) * 100).toFixed(1) : '0';
+    const barClass = day.total > 0 ? 'timeline-bar' : 'timeline-bar empty';
+    html += '<div class="timeline-row">' +
+      '<span class="timeline-date">' + esc(day.label) + '</span>' +
+      '<div class="timeline-bar-bg"><div class="' + barClass + '" style="width:' + pct + '%"></div></div>' +
+      '<span class="timeline-value">' + (day.total > 0 ? formatTokens(day.total) : '-') + '</span>' +
+      '</div>';
+  }
+  html += '</div>'; // timeline-chart
+  html += '</div>'; // usage-section
+
+  // Weekly summary cards
+  html += '<div class="usage-section">';
+  html += '<div class="usage-section-title">This Week <span class="tag">7 days</span></div>';
+  html += '<div class="weekly-cards">';
+
+  html += '<div class="weekly-card">' +
+    '<div class="wc-label">Input Tokens</div>' +
+    '<div class="wc-value">' + formatTokens(weeklyTotals.input_tokens) + '</div>' +
+    '</div>';
+
+  html += '<div class="weekly-card">' +
+    '<div class="wc-label">Output Tokens</div>' +
+    '<div class="wc-value">' + formatTokens(weeklyTotals.output_tokens) + '</div>' +
+    '</div>';
+
+  html += '<div class="weekly-card">' +
+    '<div class="wc-label">Cache Read</div>' +
+    '<div class="wc-value">' + formatTokens(weeklyTotals.cache_read_tokens) + '</div>' +
+    '</div>';
+
+  html += '<div class="weekly-card">' +
+    '<div class="wc-label">Cache Create</div>' +
+    '<div class="wc-value">' + formatTokens(weeklyTotals.cache_create_tokens) + '</div>' +
+    '</div>';
+
+  html += '<div class="weekly-card">' +
+    '<div class="wc-label">Est. Cost</div>' +
+    '<div class="wc-value ' + costClass(weeklyCost) + '">' + formatCost(weeklyCost) + '</div>' +
+    '</div>';
+
+  html += '</div>'; // weekly-cards
+
+  // Utilization bars (from Anthropic API if available)
+  if (utilizationData && utilizationData.available) {
+    html += '<div class="utilization-section">';
+    html += '<div class="usage-section-title" style="margin-top:12px">Rate Limit Utilization</div>';
+
+    const fiveHour = utilizationData.five_hour;
+    const sevenDay = utilizationData.seven_day;
+
+    if (fiveHour && fiveHour.utilization != null) {
+      const pct5 = (fiveHour.utilization * 100);
+      const barCls5 = pct5 > 80 ? 'red' : pct5 > 50 ? 'yellow' : 'green';
+      const reset5 = fiveHour.resets_at ? new Date(fiveHour.resets_at).toLocaleTimeString() : '';
+      html += '<div class="util-row">' +
+        '<span class="util-label">5-Hour Window:</span>' +
+        '<div class="util-bar-bg"><div class="util-bar ' + barCls5 + '" style="width:' + Math.min(100, pct5).toFixed(1) + '%"></div></div>' +
+        '<span class="util-pct">' + pct5.toFixed(0) + '%</span>' +
+        (reset5 ? '<span class="util-reset">resets ' + esc(reset5) + '</span>' : '') +
+        '</div>';
+    }
+
+    if (sevenDay && sevenDay.utilization != null) {
+      const pct7 = (sevenDay.utilization * 100);
+      const barCls7 = pct7 > 80 ? 'red' : pct7 > 50 ? 'yellow' : 'green';
+      const reset7 = sevenDay.resets_at ? new Date(sevenDay.resets_at).toLocaleString() : '';
+      html += '<div class="util-row">' +
+        '<span class="util-label">7-Day Window:</span>' +
+        '<div class="util-bar-bg"><div class="util-bar ' + barCls7 + '" style="width:' + Math.min(100, pct7).toFixed(1) + '%"></div></div>' +
+        '<span class="util-pct">' + pct7.toFixed(0) + '%</span>' +
+        (reset7 ? '<span class="util-reset">resets ' + esc(reset7) + '</span>' : '') +
+        '</div>';
+    }
+
+    html += '</div>';
+  }
+
+
+  html += '</div>'; // usage-section
+
+  // --- Month selector ---
+  // Collect all available months from all projects
+  const allMonthsSet = new Set();
+  for (const p of usageData) {
+    if (p.monthly) {
+      for (const m of p.monthly) {
+        allMonthsSet.add(m.month);
+      }
+    }
+  }
+  const allMonthsSorted = Array.from(allMonthsSet).sort().reverse();
+
+  // Helper: check if a session falls within the selected month
+  function sessionInMonth(s, month) {
+    if (!month) return true; // all time
+    const sa = (s.started_at || '').slice(0, 7);
+    const la = (s.last_api_call_at || '').slice(0, 7);
+    return sa === month || la === month;
+  }
+
+  // Filter sessions per project for the selected month
+  function getFilteredSessions(p) {
+    if (!usageSelectedMonth) return p.sessions;
+    return p.sessions.filter(s => sessionInMonth(s, usageSelectedMonth));
+  }
+
+  if (allMonthsSorted.length > 1) {
+    const mNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    html += '<div class="usage-section">';
+    html += '<div class="usage-section-title">Filter by Month</div>';
+    html += '<div class="month-selector">';
+    html += '<button class="month-btn' + (!usageSelectedMonth ? ' active' : '') + '" data-month="">All Time</button>';
+    for (const m of allMonthsSorted) {
+      const [y, mo] = m.split('-');
+      const label = mNames[parseInt(mo, 10) - 1] + ' ' + y;
+      html += '<button class="month-btn' + (usageSelectedMonth === m ? ' active' : '') + '" data-month="' + m + '">' + esc(label) + '</button>';
+    }
+    html += '</div>';
+    html += '</div>';
+  }
+
+  // Usage by Model table (filtered by month)
+  const allModels = {};
+  for (const p of usageData) {
+    const filteredSessions = getFilteredSessions(p);
+    for (const s of filteredSessions) {
+      const model = s.model || 'unknown';
+      if (!allModels[model]) allModels[model] = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_create_tokens: 0, api_calls: 0 };
+      allModels[model].input_tokens += s.input_tokens;
+      allModels[model].output_tokens += s.output_tokens;
+      allModels[model].cache_read_tokens += s.cache_read_tokens;
+      allModels[model].cache_create_tokens += s.cache_create_tokens;
+      allModels[model].api_calls += s.api_calls;
+    }
+  }
+
+  const modelEntries = Object.entries(allModels).sort((a, b) => {
+    const costA = calcCost(a[1].input_tokens, a[1].output_tokens, a[1].cache_read_tokens, a[1].cache_create_tokens, a[0]);
+    const costB = calcCost(b[1].input_tokens, b[1].output_tokens, b[1].cache_read_tokens, b[1].cache_create_tokens, b[0]);
+    return costB - costA;
+  });
+
+  if (modelEntries.length > 0) {
+    html += '<div class="usage-section">';
+    html += '<div class="usage-section-title">Usage by Model <span class="tag">' + modelEntries.length + ' models</span></div>';
+    html += '<table class="usage-table"><thead><tr>' +
+      '<th>Model</th>' +
+      '<th class="num">API Calls</th>' +
+      '<th class="num">Input</th>' +
+      '<th class="num">Output</th>' +
+      '<th class="num">Cache Read</th>' +
+      '<th class="num">Cache Create</th>' +
+      '<th class="num">Est. Cost</th>' +
+      '</tr></thead><tbody>';
+
+    let modelTotalCost = 0;
+    for (const [model, usage] of modelEntries) {
+      const mCost = calcCost(usage.input_tokens, usage.output_tokens, usage.cache_read_tokens, usage.cache_create_tokens, model);
+      modelTotalCost += mCost;
+      const colorCls = getModelColorClass(model);
+      html += '<tr>' +
+        '<td><span class="model-dot model-dot-' + colorCls + '"></span><span class="model-name model-color-' + colorCls + '">' + esc(model) + '</span></td>' +
+        '<td class="num">' + usage.api_calls + '</td>' +
+        '<td class="num">' + formatTokens(usage.input_tokens) + '</td>' +
+        '<td class="num">' + formatTokens(usage.output_tokens) + '</td>' +
+        '<td class="num">' + formatTokens(usage.cache_read_tokens) + '</td>' +
+        '<td class="num">' + formatTokens(usage.cache_create_tokens) + '</td>' +
+        '<td class="num ' + costClass(mCost) + '">' + formatCost(mCost) + '</td>' +
+        '</tr>';
+    }
+
+    html += '<tr class="totals-row">' +
+      '<td>Total</td>' +
+      '<td class="num">' + modelEntries.reduce((s, e) => s + e[1].api_calls, 0) + '</td>' +
+      '<td class="num">' + formatTokens(modelEntries.reduce((s, e) => s + e[1].input_tokens, 0)) + '</td>' +
+      '<td class="num">' + formatTokens(modelEntries.reduce((s, e) => s + e[1].output_tokens, 0)) + '</td>' +
+      '<td class="num">' + formatTokens(modelEntries.reduce((s, e) => s + e[1].cache_read_tokens, 0)) + '</td>' +
+      '<td class="num">' + formatTokens(modelEntries.reduce((s, e) => s + e[1].cache_create_tokens, 0)) + '</td>' +
+      '<td class="num ' + costClass(modelTotalCost) + '">' + formatCost(modelTotalCost) + '</td>' +
+      '</tr>';
+
+    html += '</tbody></table>';
+    html += '</div>'; // usage-section
+  }
+
+  // Per-project table (filtered by month)
+  // First pass: compute totals for percentage calculation
+  const projectStats = [];
+  let grandTotal = { sessions: 0, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, cost: 0, totalTokens: 0 };
+
+  for (const p of usageData) {
+    const filteredSessions = getFilteredSessions(p);
+    if (usageSelectedMonth && filteredSessions.length === 0) continue;
+
+    const projTotals = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_create_tokens: 0 };
+    let projCost = 0;
+    for (const s of filteredSessions) {
+      projTotals.input_tokens += s.input_tokens;
+      projTotals.output_tokens += s.output_tokens;
+      projTotals.cache_read_tokens += s.cache_read_tokens;
+      projTotals.cache_create_tokens += s.cache_create_tokens;
+      projCost += calcCost(s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_create_tokens, s.model);
+    }
+    const projTokens = projTotals.input_tokens + projTotals.output_tokens + projTotals.cache_read_tokens + projTotals.cache_create_tokens;
+
+    grandTotal.sessions += filteredSessions.length;
+    grandTotal.input += projTotals.input_tokens;
+    grandTotal.output += projTotals.output_tokens;
+    grandTotal.cacheRead += projTotals.cache_read_tokens;
+    grandTotal.cacheCreate += projTotals.cache_create_tokens;
+    grandTotal.cost += projCost;
+    grandTotal.totalTokens += projTokens;
+
+    projectStats.push({ p, filteredSessions, projTotals, projCost, projTokens });
+  }
+
+  // Second pass: render with percentages
+  html += '<div class="usage-section">';
+  html += '<div class="usage-section-title">All Projects <span class="tag">' + projectStats.length + ' projects</span></div>';
+
+  html += '<table class="usage-table"><thead><tr>' +
+    '<th></th>' +
+    '<th>Project</th>' +
+    '<th class="num">%</th>' +
+    '<th class="num">Sessions</th>' +
+    '<th class="num">Input</th>' +
+    '<th class="num">Output</th>' +
+    '<th class="num">Cache Read</th>' +
+    '<th class="num">Cache Create</th>' +
+    '<th class="num">Est. Cost</th>' +
+    '</tr></thead><tbody>';
+
+  for (const { p, filteredSessions, projTotals, projCost, projTokens } of projectStats) {
+    const pct = grandTotal.totalTokens > 0 ? (projTokens / grandTotal.totalTokens * 100) : 0;
+    const expanded = usageExpanded[p.project_id];
+
+    html += '<tr>' +
+      '<td><button class="expand-btn" data-pid="' + esc(p.project_id) + '">' + (expanded ? '[-]' : '[+]') + '</button></td>' +
+      '<td class="project-name">' + esc(p.project_name) + '</td>' +
+      '<td class="num"><span class="pct-badge">' + pct.toFixed(1) + '%</span></td>' +
+      '<td class="num">' + filteredSessions.length + '</td>' +
+      '<td class="num">' + formatTokens(projTotals.input_tokens) + '</td>' +
+      '<td class="num">' + formatTokens(projTotals.output_tokens) + '</td>' +
+      '<td class="num">' + formatTokens(projTotals.cache_read_tokens) + '</td>' +
+      '<td class="num">' + formatTokens(projTotals.cache_create_tokens) + '</td>' +
+      '<td class="num ' + costClass(projCost) + '">' + formatCost(projCost) + '</td>' +
+      '</tr>';
+
+    if (expanded) {
+      for (const s of filteredSessions) {
+        const sCost = calcCost(s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_create_tokens, s.model);
+        const shortSid = s.session_id.length > 20 ? s.session_id.slice(0,8) + '..' + s.session_id.slice(-6) : s.session_id;
+        const timeStr = s.last_api_call_at ? s.last_api_call_at.slice(0,16).replace('T',' ') : '';
+        html += '<tr class="session-detail-row">' +
+          '<td></td>' +
+          '<td>' + esc(shortSid) + ' <span style="color:var(--text2);font-size:10px">' + esc(s.model || '') + '</span> <span style="color:var(--text2);font-size:10px">' + timeStr + '</span></td>' +
+          '<td></td>' +
+          '<td class="num">' + s.api_calls + '</td>' +
+          '<td class="num">' + formatTokens(s.input_tokens) + '</td>' +
+          '<td class="num">' + formatTokens(s.output_tokens) + '</td>' +
+          '<td class="num">' + formatTokens(s.cache_read_tokens) + '</td>' +
+          '<td class="num">' + formatTokens(s.cache_create_tokens) + '</td>' +
+          '<td class="num ' + costClass(sCost) + '">' + formatCost(sCost) + '</td>' +
+          '</tr>';
+      }
+    }
+  }
+
+  // Grand total row
+  html += '<tr class="totals-row">' +
+    '<td></td>' +
+    '<td>Total</td>' +
+    '<td class="num">100%</td>' +
+    '<td class="num">' + grandTotal.sessions + '</td>' +
+    '<td class="num">' + formatTokens(grandTotal.input) + '</td>' +
+    '<td class="num">' + formatTokens(grandTotal.output) + '</td>' +
+    '<td class="num">' + formatTokens(grandTotal.cacheRead) + '</td>' +
+    '<td class="num">' + formatTokens(grandTotal.cacheCreate) + '</td>' +
+    '<td class="num ' + costClass(grandTotal.cost) + '">' + formatCost(grandTotal.cost) + '</td>' +
+    '</tr>';
+
+  html += '</tbody></table>';
+  html += '</div>'; // usage-section
+
+  el.innerHTML = html;
+
+  // Bind expand buttons
+  el.querySelectorAll('.expand-btn[data-pid]').forEach(btn => {
+    btn.onclick = () => toggleProjectSessions(btn.dataset.pid);
+  });
+
+  // Bind monthly filter buttons
+  el.querySelectorAll('.month-btn[data-month]').forEach(btn => {
+    btn.onclick = () => {
+      usageSelectedMonth = btn.dataset.month || null;
+      renderUsage();
+    };
+  });
+
+}
+
+function toggleProjectSessions(projectId) {
+  usageExpanded[projectId] = !usageExpanded[projectId];
+  renderUsage();
+}
+
+// --- Init ---
+loadProjects();
+
+// Refresh project list every 30s
+setInterval(loadProjects, 30000);
+
+// Refresh session list every 10s (to catch new sessions)
+setInterval(async () => {
+  if (!state.selectedProject) return;
+  const sessions = await api('/api/sessions?project=' + encodeURIComponent(state.selectedProject));
+  state.sessions = sessions;
+  renderSessions();
+}, 10000);
+</script>
+</body>
+</html>`;

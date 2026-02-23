@@ -1,0 +1,15 @@
+{
+  "event_id": "d4",
+  "event_type": "ToolCallRequested",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-duplicate",
+  "sequence": 4,
+  "timestamp": "2026-01-01T00:00:03.000Z",
+  "data": {
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/test.js"
+    },
+    "tool_use_id": "tu_dup"
+  }
+}
