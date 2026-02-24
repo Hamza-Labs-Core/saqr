@@ -42,3 +42,6 @@ TEAM_TIER_RATE_PER_MIN = "6000"
 FREE_TIER_RETENTION_DAYS = "30"
 PRO_TIER_RETENTION_DAYS = "365"
 TEAM_TIER_RETENTION_DAYS = "0"
+
+[env.preview]
+name = "saqr-sync-preview"

@@ -18,3 +18,6 @@ id = "TBD"
 JWT_ISSUER = "saqr"
 JWT_AUDIENCE = "saqr-admin"
 ALLOWED_ORIGINS = "https://admin.saqr.dev"
+
+[env.preview]
+name = "saqr-admin-preview"

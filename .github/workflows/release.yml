@@ -1,0 +1,161 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    name: Version (release)
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: bash scripts/version.sh
+
+  build-mobile:
+    name: Build Mobile (production)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build production
+        working-directory: packages/mobile
+        run: eas build --platform all --profile production --non-interactive --no-wait
+
+  deploy-servers:
+    name: Deploy Servers (production)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy sync-server
+        working-directory: packages/sync-server
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy admin-server
+        working-directory: packages/admin-server
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  release:
+    name: Create Release
+    needs: [version, build-mobile, deploy-servers]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          bash scripts/changelog.sh > changelog.txt
+          echo "Generated changelog:"
+          cat changelog.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepend to CHANGELOG.md
+        run: |
+          VERSION="v${{ needs.version.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+          {
+            echo "## ${VERSION} (${DATE})"
+            echo ""
+            cat changelog.txt
+          } > changelog_entry.txt
+
+          if [[ -f CHANGELOG.md ]]; then
+            # Insert after the header line
+            head -n 2 CHANGELOG.md > CHANGELOG_new.md
+            echo "" >> CHANGELOG_new.md
+            cat changelog_entry.txt >> CHANGELOG_new.md
+            echo "" >> CHANGELOG_new.md
+            tail -n +3 CHANGELOG.md >> CHANGELOG_new.md
+            mv CHANGELOG_new.md CHANGELOG.md
+          else
+            {
+              echo "# Changelog"
+              echo ""
+              cat changelog_entry.txt
+            } > CHANGELOG.md
+          fi
+
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git diff --cached --quiet && echo "No changelog changes" || \
+            git commit -m "chore(release): v${{ needs.version.outputs.version }} changelog"
+
+      - name: Create tag
+        run: git tag "v${{ needs.version.outputs.version }}"
+
+      - name: Push changes and tag
+        run: git push origin main --tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub release
+        run: |
+          gh release create "v${{ needs.version.outputs.version }}" \
+            --title "v${{ needs.version.outputs.version }}" \
+            --notes-file changelog.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
