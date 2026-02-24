@@ -287,6 +287,9 @@ export class SecurityMiddleware {
     };
   }
 
+  /** Maximum number of tracked IPs before cleanup. */
+  private static readonly MAX_RATE_LIMIT_ENTRIES = 10000;
+
   /**
    * Check if a client IP is rate limited.
    */
@@ -296,13 +299,23 @@ export class SecurityMiddleware {
     const now = this._nowFn();
     const windowStart = now - windowMs;
 
+    // Periodic cleanup: evict stale entries when map grows too large
+    if (this.rateLimitMap.size > SecurityMiddleware.MAX_RATE_LIMIT_ENTRIES) {
+      for (const [ip, e] of this.rateLimitMap) {
+        e.timestamps = e.timestamps.filter((t) => t > windowStart);
+        if (e.timestamps.length === 0) {
+          this.rateLimitMap.delete(ip);
+        }
+      }
+    }
+
     let entry = this.rateLimitMap.get(clientIp);
     if (!entry) {
       entry = { timestamps: [] };
       this.rateLimitMap.set(clientIp, entry);
     }
 
-    // Clean old entries
+    // Clean old entries for this IP
     entry.timestamps = entry.timestamps.filter((t) => t > windowStart);
 
     // Check limit

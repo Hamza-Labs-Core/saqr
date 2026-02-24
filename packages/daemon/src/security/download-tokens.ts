@@ -237,6 +237,19 @@ export class DownloadTokenManager {
   }
 }
 
+/** Shared singleton manager for convenience functions (preserves used-token set). */
+let sharedManager: DownloadTokenManager | null = null;
+let sharedManagerConfig: string | undefined;
+
+function getSharedManager(config?: DownloadTokenConfig): DownloadTokenManager {
+  const configKey = config ? JSON.stringify(config) : undefined;
+  if (!sharedManager || sharedManagerConfig !== configKey) {
+    sharedManager = new DownloadTokenManager(config);
+    sharedManagerConfig = configKey;
+  }
+  return sharedManager;
+}
+
 /**
  * Convenience: create a download token.
  */
@@ -244,8 +257,7 @@ export function createDownloadToken(
   fileId: string,
   config?: DownloadTokenConfig,
 ): string {
-  const manager = new DownloadTokenManager(config);
-  return manager.createToken(fileId);
+  return getSharedManager(config).createToken(fileId);
 }
 
 /**
@@ -255,6 +267,13 @@ export function verifyDownloadToken(
   token: string,
   config?: DownloadTokenConfig,
 ): TokenVerificationResult {
-  const manager = new DownloadTokenManager(config);
-  return manager.verifyToken(token);
+  return getSharedManager(config).verifyToken(token);
+}
+
+/**
+ * Reset the shared manager (for testing).
+ */
+export function resetSharedManager(): void {
+  sharedManager = null;
+  sharedManagerConfig = undefined;
 }

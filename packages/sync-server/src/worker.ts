@@ -23,6 +23,7 @@ import { handleTelemetryPush } from './codeguard/telemetry-handlers.js';
 import {
   jsonResponse,
   errorResponse,
+  checkBodySize,
   withCorsHeaders,
   withSecurityHeaders,
   handleCorsPreFlight,
@@ -190,13 +191,11 @@ export default {
       return respond(errorResponse(404, 'not_found', 'Not found'));
     }
 
-    // Check body size for POST/PUT/PATCH
+    // Check body size for POST/PUT/PATCH (handles both Content-Length and chunked)
     if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
-      const contentLength = request.headers.get('Content-Length');
-      if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
-        return respond(
-          errorResponse(413, 'payload_too_large', 'Request body exceeds 10 MB limit'),
-        );
+      const sizeError = await checkBodySize(request, MAX_BODY_SIZE);
+      if (sizeError) {
+        return respond(sizeError);
       }
     }
 

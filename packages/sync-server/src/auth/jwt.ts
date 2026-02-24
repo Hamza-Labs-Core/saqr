@@ -176,6 +176,11 @@ export async function verifyToken(
     throw new JWTError('Token expired', 'expired');
   }
 
+  // 5b. Check not-before (nbf)
+  if (payload.nbf && payload.nbf > now) {
+    throw new JWTError('Token not yet valid', 'not_yet_valid');
+  }
+
   // 6. Check issuer
   if (options?.issuer && payload.iss !== options.issuer) {
     throw new JWTError(`Invalid issuer: expected ${options.issuer}`, 'invalid_issuer');

@@ -63,6 +63,11 @@ const PII_PATTERNS: Array<{ name: PIIType; pattern: RegExp }> = [
     // Common API key patterns: sk-xxx, ghp_xxx, AKIA, etc.
     pattern: /\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36,}|AKIA[A-Z0-9]{16}|xox[baprs]-[a-zA-Z0-9\-]{10,})\b/g,
   },
+  {
+    name: 'phone_number',
+    // International phone numbers: +1-234-567-8900, +44 20 7946 0958, etc.
+    pattern: /\+[1-9]\d{0,2}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,9}/g,
+  },
 ];
 
 /** Default exempt fields (encrypted content shouldn't be scanned) */

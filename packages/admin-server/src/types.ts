@@ -61,6 +61,7 @@ export interface JWTPayload {
   role?: UserRole;
   iat: number;
   exp: number;
+  nbf?: number;
   iss: string;
   aud: string;
 }

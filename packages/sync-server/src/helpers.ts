@@ -104,6 +104,40 @@ export function errorResponse(
   return jsonResponse(status, { error, message, ...extra });
 }
 
+/**
+ * Check request body size, enforcing the limit even without Content-Length.
+ * Uses request.clone() for streaming checks so the original body remains consumable.
+ * Returns an error Response if over the limit, or null if OK.
+ */
+export async function checkBodySize(
+  request: Request,
+  maxBytes: number,
+): Promise<Response | null> {
+  // Fast path: reject if Content-Length header exceeds limit
+  const contentLength = request.headers.get('Content-Length');
+  if (contentLength && parseInt(contentLength) > maxBytes) {
+    return errorResponse(413, 'payload_too_large', `Request body exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
+  }
+
+  // For chunked/streamed bodies without Content-Length, read a clone to check size
+  if (!contentLength && request.body) {
+    const clone = request.clone();
+    const reader = clone.body!.getReader();
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        reader.cancel();
+        return errorResponse(413, 'payload_too_large', `Request body exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
+      }
+    }
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // CORS
 // ---------------------------------------------------------------------------

@@ -404,12 +404,20 @@ export class E2EERelay {
   }
 
   /**
-   * Derive a 256-bit encryption key from the shared secret.
+   * Derive a 256-bit encryption key from the shared secret using HKDF.
    */
   private deriveEncryptionKey(sharedSecret: string): Buffer {
-    return createHash("sha256")
-      .update(Buffer.from(sharedSecret, "base64"))
+    const ikm = Buffer.from(sharedSecret, "base64");
+    // HKDF-Extract: PRK = HMAC-SHA256(salt, IKM)
+    const salt = Buffer.from("saqr-e2ee-relay-v1");
+    const { createHmac: hmac } = require("node:crypto");
+    const prk = hmac("sha256", salt).update(ikm).digest();
+    // HKDF-Expand: OKM = HMAC-SHA256(PRK, info || 0x01)
+    const info = Buffer.from("e2ee-relay-encryption-key");
+    const okm = hmac("sha256", prk)
+      .update(Buffer.concat([info, Buffer.from([0x01])]))
       .digest();
+    return okm;
   }
 
   /**
