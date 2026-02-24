@@ -34,6 +34,7 @@ jobs:
   build-mobile:
     name: Build Mobile (preview)
     needs: version
+    if: ${{ vars.ENABLE_EAS_BUILD == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +68,7 @@ jobs:
         with:
           script: |
             const version = '${{ needs.version.outputs.version }}';
-            const body = `## 📱 Mobile Preview Build\n\n` +
+            const body = `## Mobile Preview Build\n\n` +
               `**Version:** \`${version}\`\n` +
               `**Status:** Build submitted to EAS\n` +
               `**Profile:** preview (internal distribution)\n\n` +
@@ -82,6 +83,7 @@ jobs:
   deploy-servers-preview:
     name: Deploy Servers (preview)
     needs: version
+    if: ${{ vars.ENABLE_WRANGLER_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +117,7 @@ jobs:
         with:
           script: |
             const version = '${{ needs.version.outputs.version }}';
-            const body = `## ☁️ Server Preview Deploy\n\n` +
+            const body = `## Server Preview Deploy\n\n` +
               `**Version:** \`${version}\`\n` +
               `| Service | URL |\n` +
               `|---------|-----|\n` +
@@ -131,6 +133,7 @@ jobs:
   prerelease:
     name: Create Prerelease
     needs: [version, build-mobile, deploy-servers-preview]
+    if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

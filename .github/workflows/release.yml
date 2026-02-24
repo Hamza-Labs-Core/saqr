@@ -34,6 +34,7 @@ jobs:
   build-mobile:
     name: Build Mobile (production)
     needs: version
+    if: ${{ vars.ENABLE_EAS_BUILD == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +65,7 @@ jobs:
   deploy-servers:
     name: Deploy Servers (production)
     needs: version
+    if: ${{ vars.ENABLE_WRANGLER_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +97,7 @@ jobs:
   release:
     name: Create Release
     needs: [version, build-mobile, deploy-servers]
+    if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
