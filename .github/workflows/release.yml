@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 concurrency:
   group: release
   cancel-in-progress: true
@@ -93,8 +96,6 @@ jobs:
     name: Create Release
     needs: [version, build-mobile, deploy-servers]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
