@@ -54,7 +54,7 @@ if command -v gh &>/dev/null && [[ -n "${GITHUB_TOKEN:-${GH_TOKEN:-}}" ]]; then
     case "$lower" in
       feat*)            FEATURES+=("$title") ;;
       fix*)             FIXES+=("$title") ;;
-      docs*|doc*)       DOCS+=("$title") ;;
+      doc*)             DOCS+=("$title") ;;
       *)                OTHER+=("$title") ;;
     esac
   done < <(gh "${PR_ARGS[@]}" 2>/dev/null || true)
@@ -74,7 +74,7 @@ if [[ ${#FEATURES[@]} -eq 0 && ${#FIXES[@]} -eq 0 && ${#DOCS[@]} -eq 0 && ${#OTH
     case "$lower" in
       feat*)            FEATURES+=("$msg") ;;
       fix*)             FIXES+=("$msg") ;;
-      docs*|doc*)       DOCS+=("$msg") ;;
+      doc*)             DOCS+=("$msg") ;;
       *)                OTHER+=("$msg") ;;
     esac
   done < <(git log --pretty=format:"%s" "$RANGE" 2>/dev/null || true)
