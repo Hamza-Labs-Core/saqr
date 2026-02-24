@@ -1,0 +1,11 @@
+{
+  "event_id": "e2",
+  "event_type": "UserPromptReceived",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-001",
+  "sequence": 2,
+  "timestamp": "2026-01-01T00:00:05.000Z",
+  "data": {
+    "prompt": "Fix the failing test in auth.test.js"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "event_id": "d3",
+  "event_type": "ToolCallRequested",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-duplicate",
+  "sequence": 3,
+  "timestamp": "2026-01-01T00:00:02.000Z",
+  "data": {
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/test.js"
+    },
+    "tool_use_id": "tu_dup"
+  }
+}

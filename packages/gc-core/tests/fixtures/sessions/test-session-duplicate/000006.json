@@ -1,0 +1,9 @@
+{
+  "event_id": "d6",
+  "event_type": "SessionEnded",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-duplicate",
+  "sequence": 6,
+  "timestamp": "2026-01-01T00:00:05.000Z",
+  "data": {}
+}

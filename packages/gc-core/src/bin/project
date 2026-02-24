@@ -1,0 +1,201 @@
+#!/usr/bin/env node
+// project -- CLI entry point for the projection engine.
+// Usage: project <projection-type> <session-id> [options]
+//
+// Options:
+//   --project <id>    Project ID (required if not inferrable)
+//   --from <n>        Start sequence (default: 1)
+//   --to <n>          End sequence (default: last)
+//   --rebuild         Force full rebuild
+//   --format <fmt>    json | text | markdown (default: json)
+//   --output <path>   Output path, use - for stdout only
+//   --quiet           Suppress stderr messages
+
+import { readlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+// Import all handlers to register them
+import '../projections/handlers/timeline.mjs';
+import '../projections/handlers/files-touched.mjs';
+import '../projections/handlers/decisions.mjs';
+import '../projections/handlers/summary.mjs';
+import '../projections/handlers/context-snapshot.mjs';
+
+import { getProjection, listProjections } from '../projections/lib/registry.mjs';
+import { buildProjection } from '../projections/lib/incremental.mjs';
+import { outputProjection } from '../projections/lib/formatters.mjs';
+import { getEventsDir, getLatestSymlink } from '../projections/lib/paths.mjs';
+
+function error(msg) {
+  process.stderr.write(`[project] ERROR: ${msg}\n`);
+}
+
+function warning(msg) {
+  process.stderr.write(`[project] WARNING: ${msg}\n`);
+}
+
+function printUsage() {
+  const projections = listProjections();
+  const names = projections.map(p => p.cliName).join(', ');
+
+  process.stderr.write(`Usage: project <projection-type> <session-id> [options]
+
+Projection types: ${names || '(none registered)'}
+
+Options:
+  --project <id>    Project ID
+  --from <n>        Start sequence (default: 1)
+  --to <n>          End sequence (default: last)
+  --rebuild         Force full rebuild
+  --format <fmt>    json | text | markdown (default: json)
+  --output <path>   Output path, use - for stdout only
+  --quiet           Suppress stderr messages
+`);
+}
+
+function parseArgs(argv) {
+  const args = argv.slice(2); // skip node and script path
+  const result = {
+    projectionType: null,
+    sessionId: null,
+    projectId: null,
+    from: undefined,
+    to: undefined,
+    rebuild: false,
+    format: 'json',
+    output: undefined,
+    quiet: false,
+  };
+
+  const positional = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    switch (arg) {
+      case '--project':
+        result.projectId = args[++i];
+        break;
+      case '--from':
+        result.from = parseInt(args[++i], 10);
+        break;
+      case '--to':
+        result.to = parseInt(args[++i], 10);
+        break;
+      case '--rebuild':
+        result.rebuild = true;
+        break;
+      case '--format':
+        result.format = args[++i];
+        break;
+      case '--output':
+        result.output = args[++i];
+        break;
+      case '--quiet':
+        result.quiet = true;
+        break;
+      case '--help':
+      case '-h':
+        printUsage();
+        process.exit(0);
+        break;
+      default:
+        if (arg.startsWith('-')) {
+          error(`Unknown option: ${arg}`);
+          process.exit(1);
+        }
+        positional.push(arg);
+    }
+  }
+
+  if (positional.length >= 1) result.projectionType = positional[0];
+  if (positional.length >= 2) result.sessionId = positional[1];
+
+  return result;
+}
+
+async function resolveLatestSession(projectId) {
+  const latestLink = getLatestSymlink(projectId);
+  try {
+    const target = await readlink(latestLink);
+    return path.basename(target);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function main() {
+  const opts = parseArgs(process.argv);
+
+  // Validate: need at least projection type
+  if (!opts.projectionType) {
+    printUsage();
+    process.exit(1);
+  }
+
+  // Validate projection type
+  const projectionDef = getProjection(opts.projectionType);
+  if (!projectionDef) {
+    const available = listProjections().map(p => p.cliName).join(', ');
+    error(`Unknown projection type: '${opts.projectionType}'. Available: ${available}`);
+    process.exit(1);
+  }
+
+  // Need session-id
+  if (!opts.sessionId) {
+    error('Session ID is required. Usage: project <type> <session-id> [options]');
+    process.exit(1);
+  }
+
+  // Need project-id
+  if (!opts.projectId) {
+    error('Project ID is required. Use --project <id>');
+    process.exit(1);
+  }
+
+  // Resolve "latest" session
+  let sessionId = opts.sessionId;
+  if (sessionId === 'latest') {
+    const resolved = await resolveLatestSession(opts.projectId);
+    if (!resolved) {
+      error(`Could not resolve 'latest' session for project '${opts.projectId}'. No latest symlink found.`);
+      process.exit(1);
+    }
+    sessionId = resolved;
+    if (!opts.quiet) {
+      warning(`Resolved 'latest' to session: ${sessionId}`);
+    }
+  }
+
+  // Validate events directory exists
+  const eventsDir = getEventsDir(opts.projectId, sessionId);
+  if (!existsSync(eventsDir)) {
+    error(`Events directory not found: ${eventsDir}`);
+    process.exit(1);
+  }
+
+  // Build projection
+  try {
+    const projection = await buildProjection(opts.projectId, sessionId, projectionDef, {
+      from: opts.from,
+      to: opts.to,
+      rebuild: opts.rebuild,
+    });
+
+    // Output
+    await outputProjection(projection, projectionDef, {
+      format: opts.format,
+      output: opts.output,
+      quiet: opts.quiet,
+      projectId: opts.projectId,
+      sessionId: sessionId,
+    });
+
+    process.exit(0);
+  } catch (e) {
+    error(`Replay error: ${e.message}`);
+    process.exit(2);
+  }
+}
+
+main();

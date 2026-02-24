@@ -1,0 +1,1725 @@
+#!/usr/bin/env bash
+# gc-query -- Query commands for the GlobalContext store
+# Subcommands:
+#   store-size   Report total event count, size, oldest/newest session
+#   status       Show store health and statistics
+#   events       Raw event access for a session
+#   tail         Show last N events from a session
+#   last         Get context from the most recent session
+#   session      Get context from a specific session
+#   sessions     List all sessions with metadata
+#   search       Search across sessions for events containing a keyword
+#   replay       Transform raw events into a human-readable narrative
+#   watch        Live event monitor (tail -f for events)
+#   doctor       End-to-end health check
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Resolve project root and source dependencies
+# ---------------------------------------------------------------------------
+_GC_QUERY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_GC_LIB_DIR="$(cd "$_GC_QUERY_DIR/../lib" && pwd)"
+
+# shellcheck source=../lib/paths.sh
+source "$_GC_LIB_DIR/paths.sh"
+# shellcheck source=../lib/session_meta.sh
+source "$_GC_LIB_DIR/session_meta.sh"
+# shellcheck source=../lib/session_read.sh
+source "$_GC_LIB_DIR/session_read.sh"
+# shellcheck source=../lib/projection_check.sh
+source "$_GC_LIB_DIR/projection_check.sh"
+# shellcheck source=../lib/session_resolve.sh
+source "$_GC_LIB_DIR/session_resolve.sh"
+# shellcheck source=../lib/context_loader.sh
+source "$_GC_LIB_DIR/context_loader.sh"
+# shellcheck source=../lib/format_context.sh
+source "$_GC_LIB_DIR/format_context.sh"
+# shellcheck source=../lib/session_chain.sh
+source "$_GC_LIB_DIR/session_chain.sh"
+
+# ---------------------------------------------------------------------------
+# Early checks (Task 20: jq dependency)
+# ---------------------------------------------------------------------------
+if ! command -v jq &>/dev/null; then
+  echo "error: jq is required but not found. Install jq and try again." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Usage (Task 03)
+# ---------------------------------------------------------------------------
+_gc_query_usage() {
+  echo "Usage: gc-query <subcommand> [options]"
+  echo ""
+  echo "Subcommands:"
+  echo "  last                 Get context from the most recent session"
+  echo "  previous             Get context from the most recent ended session"
+  echo "  session <id>         Get context from a specific session"
+  echo "  sessions             List all sessions with metadata"
+  echo "  events <session-id>  Raw event access for a session"
+  echo "  tail <session-id> [N] Show last N events (default 20)"
+  echo "  replay <session-id>  Transform events into human-readable narrative"
+  echo "  search <keyword>     Search across sessions for matching events"
+  echo "  status               Show store health and statistics"
+  echo "  store-size           Report total event count, size, oldest/newest"
+  echo "  watch [session-id]   Live event monitor (Ctrl+C to stop)"
+  echo "  doctor               End-to-end health check"
+  echo ""
+  echo "Options:"
+  echo "  --format json|text|markdown|compact  Output format (default: text)"
+  echo "  --help                               Show this help message"
+}
+
+# ---------------------------------------------------------------------------
+# Human-readable size formatting
+# ---------------------------------------------------------------------------
+_gc_format_size() {
+  local bytes="$1"
+  if [[ "$bytes" -eq 0 ]]; then
+    printf '0 B'
+    return
+  fi
+
+  local result
+  if [[ "$bytes" -ge 1073741824 ]]; then
+    result=$(awk "BEGIN { printf \"%.1f GB\", $bytes / 1073741824 }")
+  elif [[ "$bytes" -ge 1048576 ]]; then
+    result=$(awk "BEGIN { printf \"%.1f MB\", $bytes / 1048576 }")
+  elif [[ "$bytes" -ge 1024 ]]; then
+    result=$(awk "BEGIN { printf \"%.1f KB\", $bytes / 1024 }")
+  else
+    result="${bytes} B"
+  fi
+  printf '%s' "$result"
+}
+
+# ---------------------------------------------------------------------------
+# Format number with comma separators
+# ---------------------------------------------------------------------------
+_gc_format_number() {
+  local num="$1"
+  printf "%'d" "$num" 2>/dev/null || printf '%d' "$num"
+}
+
+# ---------------------------------------------------------------------------
+# Helper: derive project_id from cwd or --project flag
+# ---------------------------------------------------------------------------
+_gc_current_project_id() {
+  local project_dir="${GC_PROJECT_DIR:-$PWD}"
+  gc_derive_project_id "$project_dir"
+}
+
+# ---------------------------------------------------------------------------
+# store-size subcommand (existing, from Story 03)
+# ---------------------------------------------------------------------------
+_gc_query_store_size() {
+  local format="text"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format)
+        [[ $# -lt 2 ]] && { echo "error: --format requires an argument (json|text)" >&2; return 1; }
+        format="$2"
+        if [[ "$format" != "json" && "$format" != "text" ]]; then
+          echo "error: --format must be 'json' or 'text'" >&2; return 1
+        fi
+        shift 2 ;;
+      --help) echo "Usage: gc-query store-size [--format json|text]"; echo ""; echo "Report total event count, total size, oldest/newest session."; return 0 ;;
+      *) echo "error: unknown option '$1'" >&2; return 1 ;;
+    esac
+  done
+
+  local session_count=0 total_events=0 total_size_bytes=0
+  local oldest_session_id="" oldest_started_at="" newest_session_id="" newest_started_at=""
+
+  if [[ -d "$GC_EVENTS_DIR" ]]; then
+    for project_dir in "$GC_EVENTS_DIR"/*/; do
+      [[ -d "$project_dir" ]] || continue
+      for session_dir in "$project_dir"*/; do
+        [[ -d "$session_dir" ]] || continue
+        session_count=$((session_count + 1))
+        local event_count=0
+        for event_file in "$session_dir"[0-9]*.json; do
+          [[ -f "$event_file" ]] || continue
+          event_count=$((event_count + 1))
+          local file_size
+          file_size=$(stat -c '%s' "$event_file" 2>/dev/null || stat -f '%z' "$event_file" 2>/dev/null || echo 0)
+          total_size_bytes=$((total_size_bytes + file_size))
+        done
+        total_events=$((total_events + event_count))
+        if [[ -f "${session_dir}session.json" ]]; then
+          local meta_json sid started_at
+          meta_json="$(cat "${session_dir}session.json")"
+          sid=$(printf '%s' "$meta_json" | jq -r '.session_id // empty')
+          started_at=$(printf '%s' "$meta_json" | jq -r '.started_at // empty')
+          if [[ -n "$started_at" && -n "$sid" ]]; then
+            if [[ -z "$oldest_started_at" || "$started_at" < "$oldest_started_at" ]]; then
+              oldest_started_at="$started_at"; oldest_session_id="$sid"
+            fi
+            if [[ -z "$newest_started_at" || "$started_at" > "$newest_started_at" ]]; then
+              newest_started_at="$started_at"; newest_session_id="$sid"
+            fi
+          fi
+        fi
+      done
+    done
+  fi
+
+  if [[ "$format" == "json" ]]; then
+    local oldest_json newest_json
+    [[ -n "$oldest_session_id" ]] && oldest_json=$(jq -n --arg sid "$oldest_session_id" --arg sat "$oldest_started_at" '{"session_id": $sid, "started_at": $sat}') || oldest_json="null"
+    [[ -n "$newest_session_id" ]] && newest_json=$(jq -n --arg sid "$newest_session_id" --arg sat "$newest_started_at" '{"session_id": $sid, "started_at": $sat}') || newest_json="null"
+    jq -n --arg store_path "$GC_ROOT" --argjson session_count "$session_count" --argjson total_events "$total_events" --argjson total_size_bytes "$total_size_bytes" --argjson oldest_session "$oldest_json" --argjson newest_session "$newest_json" '{store_path: $store_path, session_count: $session_count, total_events: $total_events, total_size_bytes: $total_size_bytes, oldest_session: $oldest_session, newest_session: $newest_session}'
+  else
+    local formatted_events formatted_size
+    formatted_events=$(_gc_format_number "$total_events")
+    formatted_size=$(_gc_format_size "$total_size_bytes")
+    echo "GlobalContext Store: $GC_ROOT"
+    echo "Sessions:      $session_count"
+    echo "Total events:  $formatted_events"
+    echo "Total size:    $formatted_size"
+    if [[ -n "$oldest_session_id" ]]; then
+      echo "Oldest:        ${oldest_started_at%%T*} (session $oldest_session_id)"
+    else
+      echo "Oldest:        (none)"
+    fi
+    if [[ -n "$newest_session_id" ]]; then
+      echo "Newest:        ${newest_started_at%%T*} (session $newest_session_id)"
+    else
+      echo "Newest:        (none)"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# status subcommand (Task 06)
+# ---------------------------------------------------------------------------
+_gc_query_status() {
+  local format="text"
+  local all_projects=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --all-projects) all_projects=true; shift ;;
+      --help) echo "Usage: gc-query status [--format json|text] [--all-projects]"; return 0 ;;
+      *) echo "error: unknown option '$1'" >&2; return 1 ;;
+    esac
+  done
+
+  if [[ ! -d "$GC_ROOT" ]]; then
+    echo "error: GlobalContext store not initialized at $GC_ROOT" >&2
+    echo "hint: run 'gc-init' to create the store" >&2
+    return 1
+  fi
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  local session_count=0 total_events=0 disk_usage="" latest_session_id=""
+  local latest_started_at="" projections_count=0 stale_projections=0
+
+  # Disk usage
+  disk_usage="$(du -sh "$GC_ROOT" 2>/dev/null | cut -f1)" || disk_usage="unknown"
+
+  # Scan sessions
+  local scan_dir
+  if [[ "$all_projects" == "true" ]]; then
+    scan_dir="$GC_EVENTS_DIR"
+  else
+    scan_dir="$GC_EVENTS_DIR/$project_id"
+  fi
+
+  if [[ -d "$scan_dir" ]]; then
+    local pdir sdir
+    if [[ "$all_projects" == "true" ]]; then
+      for pdir in "$scan_dir"/*/; do
+        [[ -d "$pdir" ]] || continue
+        for sdir in "$pdir"*/; do
+          [[ -d "$sdir" ]] || continue
+          session_count=$((session_count + 1))
+          for f in "$sdir"/[0-9]*.json; do
+            [[ -f "$f" ]] || continue
+            total_events=$((total_events + 1))
+          done
+        done
+      done
+    else
+      for sdir in "$scan_dir"/*/; do
+        [[ -d "$sdir" ]] || continue
+        session_count=$((session_count + 1))
+        for f in "$sdir"/[0-9]*.json; do
+          [[ -f "$f" ]] || continue
+          total_events=$((total_events + 1))
+        done
+      done
+    fi
+  fi
+
+  # Latest session
+  latest_session_id="$(resolve_latest_session "$project_id" 2>/dev/null)" || true
+  if [[ -n "$latest_session_id" ]]; then
+    local session_file="$GC_EVENTS_DIR/$project_id/$latest_session_id/session.json"
+    if [[ -f "$session_file" ]]; then
+      latest_started_at="$(jq -r '.started_at // "unknown"' "$session_file" 2>/dev/null)" || true
+    fi
+  fi
+
+  # Projection counts
+  local proj_scan_dir
+  if [[ "$all_projects" == "true" ]]; then
+    proj_scan_dir="$GC_PROJECTIONS_DIR"
+  else
+    proj_scan_dir="$GC_PROJECTIONS_DIR/$project_id"
+  fi
+
+  if [[ -d "$proj_scan_dir" ]]; then
+    if [[ "$all_projects" == "true" ]]; then
+      for pdir in "$proj_scan_dir"/*/; do
+        [[ -d "$pdir" ]] || continue
+        for sdir in "$pdir"*/; do
+          [[ -d "$sdir" ]] || continue
+          [[ -L "$sdir" ]] && continue  # skip 'latest' symlink
+          projections_count=$((projections_count + 1))
+          local sid_name pid_name
+          sid_name="$(basename "$sdir")"
+          pid_name="$(basename "$pdir")"
+          if ! is_projection_current "$pid_name" "$sid_name" "context" 2>/dev/null; then
+            stale_projections=$((stale_projections + 1))
+          fi
+        done
+      done
+    else
+      for sdir in "$proj_scan_dir"/*/; do
+        [[ -d "$sdir" ]] || continue
+        [[ -L "$sdir" ]] && continue
+        projections_count=$((projections_count + 1))
+        local sid_name
+        sid_name="$(basename "$sdir")"
+        if ! is_projection_current "$project_id" "$sid_name" "context" 2>/dev/null; then
+          stale_projections=$((stale_projections + 1))
+        fi
+      done
+    fi
+  fi
+
+  if [[ $session_count -eq 0 ]]; then
+    if [[ "$format" == "json" ]]; then
+      jq -n --arg store "$GC_ROOT" --arg project "$project_id" '{"store": $store, "project": $project, "message": "Store is empty. No sessions recorded.", "sessions": 0, "events": 0}'
+    else
+      echo "Store is empty. No sessions recorded."
+    fi
+    return 0
+  fi
+
+  if [[ "$format" == "json" ]]; then
+    jq -n \
+      --arg store "$GC_ROOT" \
+      --arg project_id "$project_id" \
+      --argjson sessions "$session_count" \
+      --argjson events "$total_events" \
+      --arg disk_usage "$disk_usage" \
+      --arg latest_session "${latest_session_id:-null}" \
+      --arg latest_started "${latest_started_at:-null}" \
+      --argjson projections "$projections_count" \
+      --argjson stale "$stale_projections" \
+      '{
+        store: $store,
+        project_id: $project_id,
+        sessions: $sessions,
+        events: $events,
+        disk_usage: $disk_usage,
+        latest_session: $latest_session,
+        latest_started_at: $latest_started,
+        projections: $projections,
+        stale_projections: $stale
+      }'
+  else
+    echo "GlobalContext Status"
+    echo "==================="
+    echo "Store:            $GC_ROOT"
+    echo "Project:          $project_id"
+    echo "Sessions:         $session_count"
+    echo "Total events:     $total_events"
+    echo "Disk usage:       $disk_usage"
+    if [[ -n "$latest_session_id" ]]; then
+      echo "Latest session:   $latest_session_id (started: ${latest_started_at:-unknown})"
+    else
+      echo "Latest session:   (none)"
+    fi
+    echo "Projections:      $projections_count ($stale_projections stale)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# events subcommand (Task 07)
+# ---------------------------------------------------------------------------
+_gc_query_events() {
+  local format="jsonl"
+  local session_id="" from_seq="" to_seq="" type_filter=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --from) [[ $# -lt 2 ]] && { echo "error: --from requires a number" >&2; return 1; }; from_seq="$2"; shift 2 ;;
+      --to) [[ $# -lt 2 ]] && { echo "error: --to requires a number" >&2; return 1; }; to_seq="$2"; shift 2 ;;
+      --type) [[ $# -lt 2 ]] && { echo "error: --type requires an argument" >&2; return 1; }; type_filter="$2"; shift 2 ;;
+      --help) echo "Usage: gc-query events <session-id> [--from N] [--to N] [--type TYPE] [--format jsonl|json]"; return 0 ;;
+      -*) echo "error: unknown option '$1'" >&2; return 1 ;;
+      *) if [[ -z "$session_id" ]]; then session_id="$1"; else echo "error: unexpected argument '$1'" >&2; return 1; fi; shift ;;
+    esac
+  done
+
+  if [[ -z "$session_id" ]]; then
+    echo "error: session-id is required" >&2
+    return 2
+  fi
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  # Resolve session ID (supports prefix matching)
+  local resolved_sid
+  resolved_sid="$(resolve_session_id "$project_id" "$session_id")" || return $?
+
+  local events_dir="$GC_EVENTS_DIR/$project_id/$resolved_sid"
+  if [[ ! -d "$events_dir" ]]; then
+    echo "error: no events directory for session '$resolved_sid'" >&2
+    return 3
+  fi
+
+  # Collect and filter events
+  local first=true
+  [[ "$format" == "json" ]] && echo "["
+
+  for event_file in "$events_dir"/[0-9]*.json; do
+    [[ -f "$event_file" ]] || continue
+
+    local base seq_num
+    base="$(basename "$event_file" .json)"
+    seq_num=$((10#$base))
+
+    # Apply sequence range filters
+    if [[ -n "$from_seq" ]] && [[ "$seq_num" -lt "$from_seq" ]]; then continue; fi
+    if [[ -n "$to_seq" ]] && [[ "$seq_num" -gt "$to_seq" ]]; then continue; fi
+
+    # Apply type filter
+    if [[ -n "$type_filter" ]]; then
+      local etype
+      etype="$(jq -r '.event_type // empty' "$event_file" 2>/dev/null)" || continue
+      if [[ "$etype" != "$type_filter" ]]; then continue; fi
+    fi
+
+    # Output
+    local event_content
+    event_content="$(cat "$event_file" 2>/dev/null)" || {
+      echo "Warning: Event #${seq_num} could not be parsed and was skipped." >&2
+      continue
+    }
+    # Validate it's JSON
+    if ! printf '%s' "$event_content" | jq empty 2>/dev/null; then
+      echo "Warning: Event #${seq_num} could not be parsed and was skipped." >&2
+      continue
+    fi
+
+    if [[ "$format" == "json" ]]; then
+      if [[ "$first" == "true" ]]; then
+        first=false
+      else
+        echo ","
+      fi
+      printf '%s' "$event_content" | jq -c '.'
+    else
+      # jsonl: one event per line
+      printf '%s\n' "$(printf '%s' "$event_content" | jq -c '.')"
+    fi
+  done
+
+  [[ "$format" == "json" ]] && echo "]"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# tail subcommand (Task 08)
+# ---------------------------------------------------------------------------
+_gc_query_tail() {
+  local session_id="" n=20 format="jsonl"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --help) echo "Usage: gc-query tail <session-id> [N] [--format jsonl|json]"; return 0 ;;
+      -*) echo "error: unknown option '$1'" >&2; return 1 ;;
+      *)
+        if [[ -z "$session_id" ]]; then
+          session_id="$1"
+        elif [[ "$1" =~ ^[0-9]+$ ]]; then
+          n="$1"
+        else
+          echo "error: unexpected argument '$1'" >&2; return 1
+        fi
+        shift ;;
+    esac
+  done
+
+  if [[ -z "$session_id" ]]; then
+    echo "error: session-id is required" >&2
+    return 2
+  fi
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  local resolved_sid
+  resolved_sid="$(resolve_session_id "$project_id" "$session_id")" || return $?
+
+  local events_dir="$GC_EVENTS_DIR/$project_id/$resolved_sid"
+  if [[ ! -d "$events_dir" ]]; then
+    echo "error: no events directory for session '$resolved_sid'" >&2
+    return 3
+  fi
+
+  # Count total events
+  local total=0
+  for f in "$events_dir"/[0-9]*.json; do
+    [[ -f "$f" ]] || continue
+    total=$((total + 1))
+  done
+
+  # Compute from_seq
+  local from_seq=1
+  if [[ "$total" -gt "$n" ]]; then
+    from_seq=$((total - n + 1))
+  fi
+
+  _gc_query_events "$resolved_sid" --from "$from_seq" --format "$format"
+}
+
+# ---------------------------------------------------------------------------
+# previous subcommand -- most recent ended session (skips active)
+# ---------------------------------------------------------------------------
+_gc_query_previous() {
+  local format="markdown"
+  local include_parent=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --include-parent) include_parent=true; shift ;;
+      --help) echo "Usage: gc-query previous [--format json|text|markdown|compact] [--include-parent]"; echo ""; echo "Show context from the most recent ended session (skips active sessions)."; return 0 ;;
+      *) echo "error: unknown option '$1'" >&2; return 1 ;;
+    esac
+  done
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  local project_events_dir="$GC_EVENTS_DIR/$project_id"
+  if [[ ! -d "$project_events_dir" ]]; then
+    echo "No sessions found." >&2
+    return 3
+  fi
+
+  # Find the most recent ended session by scanning session dirs
+  local best_sid="" best_ts=""
+  local d sid_name
+  for d in "$project_events_dir"/*/; do
+    [[ -d "$d" ]] || continue
+    sid_name="$(basename "$d")"
+
+    local enriched state started_at
+    enriched="$(gc_read_session_with_derived "$project_id" "$sid_name" 2>/dev/null)" || continue
+    state="$(printf '%s' "$enriched" | jq -r '.state // "unknown"')"
+
+    # Skip active sessions
+    [[ "$state" == "active" ]] && continue
+
+    started_at="$(printf '%s' "$enriched" | jq -r '.started_at // ""')"
+    if [[ -z "$best_ts" || "$started_at" > "$best_ts" ]]; then
+      best_ts="$started_at"
+      best_sid="$sid_name"
+    fi
+  done
+
+  if [[ -z "$best_sid" ]]; then
+    echo "No previous ended sessions found." >&2
+    return 3
+  fi
+
+  # Delegate to session subcommand
+  if [[ "$include_parent" == "true" ]]; then
+    _gc_query_session "$best_sid" --include-parent --format "$format"
+  else
+    _gc_query_session "$best_sid" --format "$format"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# last subcommand (Task 11)
+# ---------------------------------------------------------------------------
+_gc_query_last() {
+  local format="markdown"
+  local include_parent=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --include-parent) include_parent=true; shift ;;
+      --help) echo "Usage: gc-query last [--format json|text|markdown|compact] [--include-parent]"; return 0 ;;
+      *) echo "error: unknown option '$1'" >&2; return 1 ;;
+    esac
+  done
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  local session_id
+  session_id="$(resolve_latest_session "$project_id" 2>/dev/null)" || {
+    echo "No sessions found." >&2
+    return 3
+  }
+
+  if [[ "$include_parent" == "true" ]]; then
+    resolve_session_chain "$project_id" "$session_id" "$format"
+    return $?
+  fi
+
+  local context
+  context="$(load_context "$project_id" "$session_id")" || {
+    echo "error: failed to load context for session $session_id" >&2
+    return 1
+  }
+
+  # Inject project_id if missing (real projections don't carry it)
+  context="$(printf '%s' "$context" | jq --arg pid "$project_id" '. + {_project_id: $pid}')"
+
+  # Check for empty session
+  local evt_count
+  evt_count="$(printf '%s' "$context" | jq -r '.data.event_count // ._event_count // .session.event_count // 0')"
+  if [[ "$evt_count" -eq 0 ]]; then
+    local start_time
+    start_time="$(printf '%s' "$context" | jq -r '.data.started_at // .session.started_at // "unknown"')"
+    echo "Previous session ($session_id) started at $start_time but recorded no events." >&2
+  fi
+
+  local output
+  case "$format" in
+    json) output="$(printf '%s' "$context" | format_json)" ;;
+    markdown) output="$(printf '%s' "$context" | format_markdown)" ;;
+    text) output="$(printf '%s' "$context" | format_text)" ;;
+    compact) output="$(printf '%s' "$context" | format_compact)" ;;
+    *) echo "error: unknown format '$format'" >&2; return 1 ;;
+  esac
+
+  # Task 20: truncate output if >200KB
+  _gc_truncate_output "$output" 204800
+}
+
+# ---------------------------------------------------------------------------
+# session subcommand (Task 12)
+# ---------------------------------------------------------------------------
+_gc_query_session() {
+  local format="markdown"
+  local include_parent=false
+  local session_id=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --include-parent) include_parent=true; shift ;;
+      --help) echo "Usage: gc-query session <session-id> [--format json|text|markdown|compact] [--include-parent]"; return 0 ;;
+      -*) echo "error: unknown option '$1'" >&2; return 1 ;;
+      *) if [[ -z "$session_id" ]]; then session_id="$1"; else echo "error: unexpected argument '$1'" >&2; return 1; fi; shift ;;
+    esac
+  done
+
+  if [[ -z "$session_id" ]]; then
+    echo "error: session-id is required" >&2
+    return 2
+  fi
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  local resolved_sid
+  resolved_sid="$(resolve_session_id "$project_id" "$session_id")" || return $?
+
+  if [[ "$include_parent" == "true" ]]; then
+    resolve_session_chain "$project_id" "$resolved_sid" "$format"
+    return $?
+  fi
+
+  local context
+  context="$(load_context "$project_id" "$resolved_sid")" || {
+    echo "error: failed to load context for session $resolved_sid" >&2
+    return 1
+  }
+
+  # Inject project_id if missing (real projections don't carry it)
+  context="$(printf '%s' "$context" | jq --arg pid "$project_id" '. + {_project_id: $pid}')"
+
+  local output
+  case "$format" in
+    json) output="$(printf '%s' "$context" | format_json)" ;;
+    markdown) output="$(printf '%s' "$context" | format_markdown)" ;;
+    text) output="$(printf '%s' "$context" | format_text)" ;;
+    compact) output="$(printf '%s' "$context" | format_compact)" ;;
+    *) echo "error: unknown format '$format'" >&2; return 1 ;;
+  esac
+
+  # Task 20: truncate output if >200KB
+  _gc_truncate_output "$output" 204800
+}
+
+# ---------------------------------------------------------------------------
+# sessions subcommand (Task 16)
+# ---------------------------------------------------------------------------
+_gc_query_sessions() {
+  local format="text"
+  local all_projects=false
+  local state_filter="" since_filter="" limit_filter=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --all-projects) all_projects=true; shift ;;
+      --state) [[ $# -lt 2 ]] && { echo "error: --state requires an argument" >&2; return 1; }; state_filter="$2"; shift 2 ;;
+      --since) [[ $# -lt 2 ]] && { echo "error: --since requires an argument" >&2; return 1; }; since_filter="$2"; shift 2 ;;
+      --limit) [[ $# -lt 2 ]] && { echo "error: --limit requires a number" >&2; return 1; }; limit_filter="$2"; shift 2 ;;
+      --help) echo "Usage: gc-query sessions [--all-projects] [--state STATE] [--since DURATION] [--limit N] [--format json|text|compact]"; return 0 ;;
+      *) echo "error: unknown option '$1'" >&2; return 1 ;;
+    esac
+  done
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  # Parse --since to epoch
+  local since_epoch=0
+  if [[ -n "$since_filter" ]]; then
+    local now_epoch
+    now_epoch="$(date +%s)"
+    local num="${since_filter%[dwmhDWMH]}"
+    local unit="${since_filter##*[0-9]}"
+    case "$unit" in
+      h|H) since_epoch=$((now_epoch - num * 3600)) ;;
+      d|D) since_epoch=$((now_epoch - num * 86400)) ;;
+      w|W) since_epoch=$((now_epoch - num * 604800)) ;;
+      m|M) since_epoch=$((now_epoch - num * 2592000)) ;;
+      *) since_epoch=$((now_epoch - num * 86400)) ;;  # default: days
+    esac
+  fi
+
+  # Collect sessions
+  local sessions_json="[]"
+  local scan_dirs=()
+
+  if [[ "$all_projects" == "true" ]]; then
+    if [[ -d "$GC_EVENTS_DIR" ]]; then
+      for pdir in "$GC_EVENTS_DIR"/*/; do
+        [[ -d "$pdir" ]] || continue
+        scan_dirs+=("$pdir")
+      done
+    fi
+  else
+    if [[ -d "$GC_EVENTS_DIR/$project_id" ]]; then
+      scan_dirs+=("$GC_EVENTS_DIR/$project_id/")
+    fi
+  fi
+
+  for pdir in "${scan_dirs[@]+${scan_dirs[@]}}"; do
+    local pid_name
+    pid_name="$(basename "$pdir")"
+    for sdir in "$pdir"*/; do
+      [[ -d "$sdir" ]] || continue
+      local sid_name
+      sid_name="$(basename "$sdir")"
+
+      # Read session metadata
+      local meta
+      if [[ -f "$sdir/session.json" ]]; then
+        meta="$(cat "$sdir/session.json" 2>/dev/null)" || continue
+        if ! printf '%s' "$meta" | jq empty 2>/dev/null; then continue; fi
+      else
+        # Fallback: read first event file
+        local first_event=""
+        for f in "$sdir"/[0-9]*.json; do
+          [[ -f "$f" ]] || continue
+          first_event="$f"
+          break
+        done
+        if [[ -z "$first_event" ]]; then continue; fi
+        meta="$(jq -n --arg sid "$sid_name" --arg pid "$pid_name" '{session_id: $sid, project_id: $pid, started_at: "unknown", event_count: 0}')"
+      fi
+
+      # Compute derived fields
+      local enriched
+      enriched="$(gc_read_session_with_derived "$pid_name" "$sid_name" 2>/dev/null)" || {
+        enriched="$(printf '%s' "$meta" | jq '. + {state: "unknown", duration_seconds: 0}')"
+      }
+
+      # Apply state filter
+      if [[ -n "$state_filter" ]]; then
+        local sess_state
+        sess_state="$(printf '%s' "$enriched" | jq -r '.state // "unknown"')"
+        if [[ "$sess_state" != "$state_filter" ]]; then continue; fi
+      fi
+
+      # Apply since filter
+      if [[ "$since_epoch" -gt 0 ]]; then
+        local started_at
+        started_at="$(printf '%s' "$enriched" | jq -r '.started_at // empty')"
+        if [[ -n "$started_at" ]]; then
+          local start_epoch
+          start_epoch="$(date -d "$started_at" +%s 2>/dev/null || echo 0)"
+          if [[ "$start_epoch" -lt "$since_epoch" ]]; then continue; fi
+        fi
+      fi
+
+      sessions_json="$(printf '%s' "$sessions_json" | jq --argjson s "$enriched" '. + [$s]')"
+    done
+  done
+
+  # Sort by started_at descending
+  sessions_json="$(printf '%s' "$sessions_json" | jq 'sort_by(.started_at) | reverse')"
+
+  # Apply limit
+  if [[ -n "$limit_filter" ]]; then
+    sessions_json="$(printf '%s' "$sessions_json" | jq --argjson n "$limit_filter" '.[:$n]')"
+  fi
+
+  local count
+  count="$(printf '%s' "$sessions_json" | jq 'length')"
+
+  if [[ "$count" -eq 0 ]]; then
+    if [[ "$format" == "json" ]]; then
+      echo "[]"
+    else
+      echo "No sessions found."
+    fi
+    return 0
+  fi
+
+  case "$format" in
+    json)
+      printf '%s' "$sessions_json" | jq '.'
+      ;;
+    compact)
+      local i=0
+      while [[ $i -lt $count ]]; do
+        local s
+        s="$(printf '%s' "$sessions_json" | jq -r ".[$i]")"
+        local sid started ec st
+        sid="$(printf '%s' "$s" | jq -r '.session_id // "unknown"')"
+        started="$(printf '%s' "$s" | jq -r '.started_at // "unknown"')"
+        ec="$(printf '%s' "$s" | jq -r '.event_count // 0')"
+        st="$(printf '%s' "$s" | jq -r '.state // "unknown"')"
+        printf '%s | %s | %s events | %s\n' "${sid:0:8}" "$started" "$ec" "$st"
+        i=$((i + 1))
+      done
+      ;;
+    *)
+      # text format
+      printf '%-10s %-24s %-30s %8s %10s\n' "SESSION" "STARTED" "PROJECT" "EVENTS" "STATE"
+      printf '%-10s %-24s %-30s %8s %10s\n' "-------" "-------" "-------" "------" "-----"
+      local i=0
+      while [[ $i -lt $count ]]; do
+        local s
+        s="$(printf '%s' "$sessions_json" | jq -r ".[$i]")"
+        local sid started pdir ec st
+        sid="$(printf '%s' "$s" | jq -r '.session_id // "unknown"')"
+        started="$(printf '%s' "$s" | jq -r '.started_at // "unknown"')"
+        pdir="$(printf '%s' "$s" | jq -r '.project_dir // .project_id // "unknown"')"
+        ec="$(printf '%s' "$s" | jq -r '.event_count // 0')"
+        st="$(printf '%s' "$s" | jq -r '.state // "unknown"')"
+        printf '%-10s %-24s %-30s %8s %10s\n' "${sid:0:8}" "${started:0:24}" "${pdir:0:30}" "$ec" "$st"
+        i=$((i + 1))
+      done
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# search subcommand (Task 17)
+# ---------------------------------------------------------------------------
+_gc_query_search() {
+  local keyword="" format="text" type_filter="" session_filter="" file_filter=""
+  local case_sensitive=false limit=20
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --type) [[ $# -lt 2 ]] && { echo "error: --type requires an argument" >&2; return 1; }; type_filter="$2"; shift 2 ;;
+      --session) [[ $# -lt 2 ]] && { echo "error: --session requires an argument" >&2; return 1; }; session_filter="$2"; shift 2 ;;
+      --file) [[ $# -lt 2 ]] && { echo "error: --file requires an argument" >&2; return 1; }; file_filter="$2"; shift 2 ;;
+      --case-sensitive) case_sensitive=true; shift ;;
+      --limit) [[ $# -lt 2 ]] && { echo "error: --limit requires a number" >&2; return 1; }; limit="$2"; shift 2 ;;
+      --help) echo "Usage: gc-query search <keyword> [--type TYPE] [--session ID] [--file PATH] [--case-sensitive] [--limit N] [--format json|text]"; return 0 ;;
+      -*) echo "error: unknown option '$1'" >&2; return 1 ;;
+      *) if [[ -z "$keyword" ]]; then keyword="$1"; else echo "error: unexpected argument '$1'" >&2; return 1; fi; shift ;;
+    esac
+  done
+
+  if [[ -z "$keyword" && -z "$file_filter" ]]; then
+    echo "error: search keyword is required" >&2
+    return 2
+  fi
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  # Escape keyword for jq's test() function
+  local escaped_keyword
+  escaped_keyword="$(printf '%s' "${keyword:-$file_filter}" | sed 's/[[\.*+?{}()|^$\\]/\\&/g')"
+
+  local jq_flags=""
+  if [[ "$case_sensitive" == "false" ]]; then
+    jq_flags="i"
+  fi
+
+  local results_json="[]"
+  local total_matches=0
+
+  # Determine which session dirs to scan
+  local scan_dirs=()
+  if [[ -n "$session_filter" ]]; then
+    local resolved_sid
+    resolved_sid="$(resolve_session_id "$project_id" "$session_filter" 2>/dev/null)" || {
+      echo "error: session '$session_filter' not found" >&2
+      return 3
+    }
+    scan_dirs+=("$GC_EVENTS_DIR/$project_id/$resolved_sid")
+  else
+    if [[ -d "$GC_EVENTS_DIR/$project_id" ]]; then
+      for sdir in "$GC_EVENTS_DIR/$project_id"/*/; do
+        [[ -d "$sdir" ]] || continue
+        scan_dirs+=("$sdir")
+      done
+    fi
+  fi
+
+  for sdir in "${scan_dirs[@]+${scan_dirs[@]}}"; do
+    local sid_name
+    sid_name="$(basename "$sdir")"
+
+    # Get session timestamp for recency sorting
+    local session_ts=""
+    if [[ -f "$sdir/session.json" ]]; then
+      session_ts="$(jq -r '.started_at // ""' "$sdir/session.json" 2>/dev/null)" || true
+    fi
+
+    for event_file in "$sdir"/[0-9]*.json; do
+      [[ -f "$event_file" ]] || continue
+
+      local event_content
+      event_content="$(cat "$event_file" 2>/dev/null)" || continue
+      if ! printf '%s' "$event_content" | jq empty 2>/dev/null; then continue; fi
+
+      local etype
+      etype="$(printf '%s' "$event_content" | jq -r '.event_type // empty')"
+
+      # Apply type filter
+      if [[ -n "$type_filter" && "$etype" != "$type_filter" ]]; then continue; fi
+
+      local matched=false
+      local snippet=""
+      local match_count=0
+
+      if [[ -n "$file_filter" ]]; then
+        # Search for file paths in tool inputs/outputs
+        local file_matches
+        file_matches="$(printf '%s' "$event_content" | jq -r --arg f "$escaped_keyword" --arg flags "$jq_flags" '
+          [.. | strings] | map(select(test($f; $flags))) | length
+        ' 2>/dev/null)" || file_matches=0
+        if [[ "$file_matches" -gt 0 ]]; then
+          matched=true
+          match_count=$file_matches
+          snippet="$(printf '%s' "$event_content" | jq -r --arg f "$escaped_keyword" --arg flags "$jq_flags" '
+            [.. | strings] | map(select(test($f; $flags))) | first // empty
+          ' 2>/dev/null)"
+          snippet="${snippet:0:80}"
+        fi
+      else
+        # Build grep flags based on case sensitivity
+        local grep_flags="-qF"
+        local grep_count_flags="-cF"
+        if [[ "$case_sensitive" == "false" ]]; then
+          grep_flags="-qFi"
+          grep_count_flags="-cFi"
+        fi
+
+        # Search based on event type
+        case "$etype" in
+          UserPromptReceived)
+            local prompt_val
+            prompt_val="$(printf '%s' "$event_content" | jq -r '.data.prompt // empty')"
+            if [[ -n "$prompt_val" ]] && printf '%s' "$prompt_val" | grep $grep_flags -- "$keyword" 2>/dev/null; then
+              matched=true
+              match_count="$(printf '%s' "$prompt_val" | grep $grep_count_flags -- "$keyword" 2>/dev/null || echo 1)"
+              snippet="${prompt_val:0:80}"
+            fi
+            ;;
+          ToolCallCompleted)
+            local tool_name tool_result
+            tool_name="$(printf '%s' "$event_content" | jq -r '.data.tool_name // empty')"
+            tool_result="$(printf '%s' "$event_content" | jq -r '.data.tool_result // empty' | head -c 500)"
+            if printf '%s %s' "$tool_name" "$tool_result" | grep $grep_flags -- "$keyword" 2>/dev/null; then
+              matched=true
+              match_count="$(printf '%s %s' "$tool_name" "$tool_result" | grep $grep_count_flags -- "$keyword" 2>/dev/null || echo 1)"
+              snippet="${tool_name}: ${tool_result:0:60}"
+            fi
+            ;;
+          SessionStarted)
+            local cwd_val
+            cwd_val="$(printf '%s' "$event_content" | jq -r '.data.cwd // empty')"
+            if [[ -n "$cwd_val" ]] && printf '%s' "$cwd_val" | grep $grep_flags -- "$keyword" 2>/dev/null; then
+              matched=true
+              match_count=1
+              snippet="${cwd_val:0:80}"
+            fi
+            ;;
+          *)
+            # Search all string values using jq test()
+            local any_matches
+            any_matches="$(printf '%s' "$event_content" | jq -r --arg k "$escaped_keyword" --arg flags "$jq_flags" '
+              [.. | strings] | map(select(test($k; $flags))) | length
+            ' 2>/dev/null)" || any_matches=0
+            if [[ "$any_matches" -gt 0 ]]; then
+              matched=true
+              match_count=$any_matches
+              snippet="$(printf '%s' "$event_content" | jq -r --arg k "$escaped_keyword" --arg flags "$jq_flags" '
+                [.. | strings] | map(select(test($k; $flags))) | first // empty
+              ' 2>/dev/null)"
+              snippet="${snippet:0:80}"
+            fi
+            ;;
+        esac
+      fi
+
+      if [[ "$matched" == "true" ]]; then
+        total_matches=$((total_matches + 1))
+        local base seq_num
+        base="$(basename "$event_file" .json)"
+        seq_num=$((10#$base))
+
+        local event_ts
+        event_ts="$(printf '%s' "$event_content" | jq -r '.timestamp // ""' 2>/dev/null)" || event_ts=""
+        local sort_ts="${event_ts:-$session_ts}"
+
+        results_json="$(printf '%s' "$results_json" | jq \
+          --arg sid "$sid_name" \
+          --argjson seq "$seq_num" \
+          --arg type "$etype" \
+          --arg snippet "$snippet" \
+          --argjson match_count "$match_count" \
+          --arg timestamp "${sort_ts:-}" \
+          '. + [{"session_id": $sid, "sequence": $seq, "event_type": $type, "snippet": $snippet, "match_count": $match_count, "timestamp": $timestamp}]')"
+      fi
+    done
+  done
+
+  if [[ "$total_matches" -eq 0 ]]; then
+    if [[ "$format" == "json" ]]; then
+      echo "[]"
+    else
+      echo "No results found."
+    fi
+    return 0
+  fi
+
+  # Sort by relevance (match_count desc) then recency (timestamp desc), then apply limit
+  # Use stable sort: first sort by timestamp desc, then by match_count desc
+  results_json="$(printf '%s' "$results_json" | jq --argjson lim "$limit" '
+    sort_by(.timestamp) | reverse
+    | sort_by(-.match_count)
+    | .[:$lim]
+  ')"
+
+  if [[ "$format" == "json" ]]; then
+    # Remove internal sorting fields from output
+    printf '%s' "$results_json" | jq '[.[] | del(.match_count, .timestamp)]'
+  else
+    printf '%s' "$results_json" | jq -r '.[] | "\(.session_id)  seq:\(.sequence)  [\(.event_type)]  \(.snippet)"'
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# replay subcommand (Task 18)
+# ---------------------------------------------------------------------------
+_gc_query_replay() {
+  local session_id="" format="text" from_seq="" to_seq="" verbose=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --from) [[ $# -lt 2 ]] && { echo "error: --from requires a number" >&2; return 1; }; from_seq="$2"; shift 2 ;;
+      --to) [[ $# -lt 2 ]] && { echo "error: --to requires a number" >&2; return 1; }; to_seq="$2"; shift 2 ;;
+      --verbose) verbose=true; shift ;;
+      --help) echo "Usage: gc-query replay <session-id> [--from N] [--to N] [--verbose] [--format text|markdown|json]"; return 0 ;;
+      -*) echo "error: unknown option '$1'" >&2; return 1 ;;
+      *) if [[ -z "$session_id" ]]; then session_id="$1"; else echo "error: unexpected argument '$1'" >&2; return 1; fi; shift ;;
+    esac
+  done
+
+  if [[ -z "$session_id" ]]; then
+    echo "error: session-id is required" >&2
+    return 2
+  fi
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  local resolved_sid
+  resolved_sid="$(resolve_session_id "$project_id" "$session_id")" || return $?
+
+  local events_dir="$GC_EVENTS_DIR/$project_id/$resolved_sid"
+  if [[ ! -d "$events_dir" ]]; then
+    echo "error: no events directory for session '$resolved_sid'" >&2
+    return 3
+  fi
+
+  local step=0
+  local prev_seq=0
+  local replay_json="[]"
+
+  if [[ "$format" == "markdown" ]]; then
+    echo "## Session Replay: ${resolved_sid}"
+    echo ""
+  fi
+
+  for event_file in "$events_dir"/[0-9]*.json; do
+    [[ -f "$event_file" ]] || continue
+
+    local base seq_num
+    base="$(basename "$event_file" .json)"
+    seq_num=$((10#$base))
+
+    # Apply sequence range filters
+    if [[ -n "$from_seq" ]] && [[ "$seq_num" -lt "$from_seq" ]]; then continue; fi
+    if [[ -n "$to_seq" ]] && [[ "$seq_num" -gt "$to_seq" ]]; then continue; fi
+
+    local event_content
+    event_content="$(cat "$event_file" 2>/dev/null)" || {
+      echo "Warning: Event #${seq_num} could not be parsed and was skipped." >&2
+      continue
+    }
+    if ! printf '%s' "$event_content" | jq empty 2>/dev/null; then
+      echo "Warning: Event #${seq_num} could not be parsed and was skipped." >&2
+      continue
+    fi
+
+    # Detect sequence gaps
+    if [[ "$prev_seq" -gt 0 ]] && [[ $((seq_num - prev_seq)) -gt 1 ]]; then
+      local gap_start=$((prev_seq + 1))
+      local gap_end=$((seq_num - 1))
+      if [[ "$format" != "json" ]]; then
+        echo "  [Note: sequence gap detected, events ${gap_start}-${gap_end} missing]"
+        echo ""
+      fi
+    fi
+    prev_seq=$seq_num
+    step=$((step + 1))
+
+    local etype
+    etype="$(printf '%s' "$event_content" | jq -r '.event_type // "Unknown"')"
+
+    # Build narrative
+    local narrative=""
+    case "$etype" in
+      SessionStarted)
+        local cwd source_val
+        cwd="$(printf '%s' "$event_content" | jq -r '.data.cwd // "unknown"')"
+        source_val="$(printf '%s' "$event_content" | jq -r '.data.source // "unknown"')"
+        narrative="Session started in ${cwd} (source: ${source_val})"
+        ;;
+      UserPromptReceived)
+        local prompt
+        prompt="$(printf '%s' "$event_content" | jq -r '.data.prompt // ""')"
+        if [[ ${#prompt} -gt 200 ]]; then
+          prompt="${prompt:0:197}..."
+        fi
+        narrative="User: \"${prompt}\""
+        ;;
+      ToolCallRequested)
+        local tool_name target
+        tool_name="$(printf '%s' "$event_content" | jq -r '.data.tool_name // "unknown"')"
+        target="$(printf '%s' "$event_content" | jq -r '.data.target // ""')"
+        narrative="Agent plans to use ${tool_name}"
+        [[ -n "$target" && "$target" != "null" ]] && narrative="${narrative} on ${target}"
+        ;;
+      ToolCallCompleted)
+        local tool_name result
+        tool_name="$(printf '%s' "$event_content" | jq -r '.data.tool_name // "unknown"')"
+        result="$(printf '%s' "$event_content" | jq -r '.data.tool_result // ""' | head -c 100)"
+        if [[ ${#result} -ge 100 ]]; then
+          result="${result:0:97}..."
+        fi
+        narrative="Executed ${tool_name}: ${result}"
+        ;;
+      ToolCallFailed)
+        local tool_name error_msg
+        tool_name="$(printf '%s' "$event_content" | jq -r '.data.tool_name // "unknown"')"
+        error_msg="$(printf '%s' "$event_content" | jq -r '.data.error // "unknown error"')"
+        narrative="FAILED: ${tool_name} -- ${error_msg}"
+        ;;
+      AgentSpawned)
+        local desc
+        desc="$(printf '%s' "$event_content" | jq -r '.data.description // ""')"
+        narrative="Sub-agent started: ${desc}"
+        ;;
+      AgentCompleted)
+        local summary
+        summary="$(printf '%s' "$event_content" | jq -r '.data.summary // ""')"
+        narrative="Sub-agent finished: ${summary}"
+        ;;
+      TurnCompleted)
+        narrative="Turn completed"
+        ;;
+      CompactionTriggered)
+        narrative="--- COMPACTION ---"
+        ;;
+      SessionEnded)
+        narrative="Session ended"
+        ;;
+      *)
+        local data_summary
+        data_summary="$(printf '%s' "$event_content" | jq -c '.data // {}' | head -c 80)"
+        narrative="[Unknown: ${etype}] ${data_summary}"
+        ;;
+    esac
+
+    case "$format" in
+      json)
+        replay_json="$(printf '%s' "$replay_json" | jq \
+          --argjson step "$step" \
+          --argjson seq "$seq_num" \
+          --arg type "$etype" \
+          --arg narrative "$narrative" \
+          '. + [{"step": $step, "sequence": $seq, "event_type": $type, "narrative": $narrative}]')"
+        ;;
+      markdown)
+        if [[ "$etype" == "CompactionTriggered" ]]; then
+          echo "---"
+          echo "**Step ${step}** (seq ${seq_num}): ${narrative}"
+          echo "---"
+        else
+          echo "**Step ${step}** (seq ${seq_num}): ${narrative}"
+        fi
+        if [[ "$verbose" == "true" ]]; then
+          echo ""
+          echo '```json'
+          printf '%s' "$event_content" | jq '.'
+          echo '```'
+        fi
+        echo ""
+        ;;
+      *)
+        # text format
+        if [[ "$etype" == "CompactionTriggered" ]]; then
+          echo "========================================="
+          echo "Step ${step} (seq ${seq_num}): ${narrative}"
+          echo "========================================="
+        else
+          echo "Step ${step} (seq ${seq_num}): ${narrative}"
+        fi
+        if [[ "$verbose" == "true" ]]; then
+          printf '%s' "$event_content" | jq '.'
+          echo ""
+        fi
+        ;;
+    esac
+  done
+
+  if [[ "$format" == "json" ]]; then
+    printf '%s' "$replay_json" | jq '.'
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# watch subcommand -- live event monitor
+# ---------------------------------------------------------------------------
+_gc_format_event_line() {
+  local event_content="$1"
+  local etype
+  etype="$(printf '%s' "$event_content" | jq -r '.event_type // "Unknown"')"
+  local seq_num
+  seq_num="$(printf '%s' "$event_content" | jq -r '.sequence // 0')"
+  local ts
+  ts="$(printf '%s' "$event_content" | jq -r '.timestamp // ""' | cut -c12-19)"
+  local proj
+  proj="$(printf '%s' "$event_content" | jq -r '.project_id // ""' | sed 's/-[a-f0-9]\{6\}$//')"
+
+  local detail=""
+  case "$etype" in
+    SessionStarted)
+      local cwd
+      cwd="$(printf '%s' "$event_content" | jq -r '.data.cwd // ""')"
+      detail="in ${cwd}"
+      ;;
+    UserPromptReceived)
+      local prompt
+      prompt="$(printf '%s' "$event_content" | jq -r '.data.prompt // ""')"
+      [[ ${#prompt} -gt 80 ]] && prompt="${prompt:0:77}..."
+      detail="\"${prompt}\""
+      ;;
+    ToolCallRequested)
+      local tool_name tool_target
+      tool_name="$(printf '%s' "$event_content" | jq -r '.data.tool_name // "?"')"
+      tool_target="$(printf '%s' "$event_content" | jq -r '
+        .data.tool_input.file_path //
+        .data.tool_input.notebook_path //
+        .data.tool_input.command //
+        .data.tool_input.pattern //
+        empty' | head -c 60)"
+      detail="${tool_name}"
+      [[ -n "$tool_target" ]] && detail="${detail} ${tool_target}"
+      ;;
+    ToolCallCompleted)
+      local tool_name
+      tool_name="$(printf '%s' "$event_content" | jq -r '.data.tool_name // "?"')"
+      detail="${tool_name} OK"
+      ;;
+    ToolCallFailed)
+      local tool_name err
+      tool_name="$(printf '%s' "$event_content" | jq -r '.data.tool_name // "?"')"
+      err="$(printf '%s' "$event_content" | jq -r '.data.error // ""' | head -c 40)"
+      detail="${tool_name} FAILED: ${err}"
+      ;;
+    AgentSpawned)
+      detail="$(printf '%s' "$event_content" | jq -r '.data.agent_type // .data.description // ""')"
+      ;;
+    AgentCompleted)
+      detail="$(printf '%s' "$event_content" | jq -r '.data.agent_type // ""') done"
+      ;;
+    TurnCompleted)
+      detail=""
+      ;;
+    CompactionTriggered)
+      detail="context window compacted"
+      ;;
+    SessionEnded)
+      detail=""
+      ;;
+    *)
+      detail="$(printf '%s' "$event_content" | jq -c '.data // {}' | head -c 60)"
+      ;;
+  esac
+
+  printf '%s  %-16s  #%-4s  %-22s  %s\n' "$ts" "$proj" "$seq_num" "$etype" "$detail"
+}
+
+_gc_query_watch() {
+  local session_id="" interval=2
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --interval|-n) [[ $# -lt 2 ]] && { echo "error: --interval requires a number" >&2; return 1; }; interval="$2"; shift 2 ;;
+      --help) echo "Usage: gc-query watch [session-id] [--interval N]"; echo ""; echo "Live monitor for events. Auto-discovers latest session if no ID given."; echo "Press Ctrl+C to stop."; return 0 ;;
+      -*) echo "error: unknown option '$1'" >&2; return 1 ;;
+      *) if [[ -z "$session_id" ]]; then session_id="$1"; else echo "error: unexpected argument '$1'" >&2; return 1; fi; shift ;;
+    esac
+  done
+
+  local project_id
+  project_id="$(_gc_current_project_id)"
+
+  # Resolve session
+  local resolved_sid
+  if [[ -n "$session_id" ]]; then
+    resolved_sid="$(resolve_session_id "$project_id" "$session_id")" || return $?
+  else
+    resolved_sid="$(resolve_latest_session "$project_id" 2>/dev/null)" || {
+      echo "error: no sessions found. Start a Claude Code session first." >&2
+      return 3
+    }
+  fi
+
+  local events_dir="$GC_EVENTS_DIR/$project_id/$resolved_sid"
+  if [[ ! -d "$events_dir" ]]; then
+    echo "error: no events directory for session '$resolved_sid'" >&2
+    return 3
+  fi
+
+  echo "GlobalContext Watch"
+  echo "  Session:  ${resolved_sid}"
+  echo "  Project:  ${project_id}"
+  echo "  Interval: ${interval}s"
+  echo "  Press Ctrl+C to stop"
+  echo ""
+  printf '%-8s  %-16s  %-5s  %-22s  %s\n' "TIME" "PROJECT" "SEQ" "EVENT" "DETAIL"
+  printf '%-8s  %-16s  %-5s  %-22s  %s\n' "--------" "----------------" "-----" "----------------------" "------"
+
+  local last_seq=0
+  local total_events=0 tool_calls=0 failures=0
+
+  # Print existing events first
+  for event_file in "$events_dir"/[0-9]*.json; do
+    [[ -f "$event_file" ]] || continue
+    local base seq_num
+    base="$(basename "$event_file" .json)"
+    # Strip non-numeric suffix (lockless writes: 000001_a3f7.json)
+    base="${base%%_*}"
+    seq_num=$((10#$base))
+    [[ "$seq_num" -gt "$last_seq" ]] && last_seq="$seq_num"
+    total_events=$((total_events + 1))
+
+    local content
+    content="$(cat "$event_file" 2>/dev/null)" || continue
+    printf '%s' "$content" | jq empty 2>/dev/null || continue
+
+    local etype
+    etype="$(printf '%s' "$content" | jq -r '.event_type // ""')"
+    [[ "$etype" == "ToolCallRequested" ]] && tool_calls=$((tool_calls + 1))
+    [[ "$etype" == "ToolCallFailed" ]] && failures=$((failures + 1))
+
+    _gc_format_event_line "$content"
+  done
+
+  echo ""
+  echo "--- Caught up ($total_events events, $tool_calls tool calls). Watching for new events... ---"
+  echo ""
+
+  # Poll loop
+  while true; do
+    sleep "$interval"
+
+    local new_found=false
+    for event_file in "$events_dir"/[0-9]*.json; do
+      [[ -f "$event_file" ]] || continue
+      local base seq_num
+      base="$(basename "$event_file" .json)"
+      base="${base%%_*}"
+      seq_num=$((10#$base))
+
+      [[ "$seq_num" -le "$last_seq" ]] && continue
+
+      local content
+      content="$(cat "$event_file" 2>/dev/null)" || continue
+      printf '%s' "$content" | jq empty 2>/dev/null || continue
+
+      local etype
+      etype="$(printf '%s' "$content" | jq -r '.event_type // ""')"
+      [[ "$etype" == "ToolCallRequested" ]] && tool_calls=$((tool_calls + 1))
+      [[ "$etype" == "ToolCallFailed" ]] && failures=$((failures + 1))
+      total_events=$((total_events + 1))
+
+      _gc_format_event_line "$content"
+      last_seq="$seq_num"
+      new_found=true
+
+      # If session ended, stop watching
+      if [[ "$etype" == "SessionEnded" ]]; then
+        echo ""
+        echo "--- Session ended ($total_events events, $tool_calls tool calls, $failures failures) ---"
+        return 0
+      fi
+    done
+
+    # Also check if a newer session appeared (session switch)
+    if [[ "$new_found" != "true" ]]; then
+      local current_latest
+      current_latest="$(resolve_latest_session "$project_id" 2>/dev/null)" || true
+      if [[ -n "$current_latest" && "$current_latest" != "$resolved_sid" ]]; then
+        echo ""
+        echo "--- New session detected: ${current_latest} ---"
+        echo "--- Run: gc-query watch ${current_latest} ---"
+        echo ""
+        resolved_sid="$current_latest"
+        events_dir="$GC_EVENTS_DIR/$project_id/$resolved_sid"
+        last_seq=0
+        total_events=0
+        tool_calls=0
+        failures=0
+        printf '%-8s  %-5s  %-22s  %s\n' "TIME" "SEQ" "EVENT" "DETAIL"
+        printf '%-8s  %-5s  %-22s  %s\n' "--------" "-----" "----------------------" "------"
+      fi
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
+# doctor subcommand (Task 19)
+# ---------------------------------------------------------------------------
+_gc_query_doctor() {
+  local format="text"
+  local fix_mode=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format) [[ $# -lt 2 ]] && { echo "error: --format requires an argument" >&2; return 1; }; format="$2"; shift 2 ;;
+      --fix) fix_mode=true; shift ;;
+      --help) echo "Usage: gc-query doctor [--format json|text] [--fix]"; return 0 ;;
+      *) echo "error: unknown option '$1'" >&2; return 1 ;;
+    esac
+  done
+
+  local pass_count=0 fail_count=0 warn_count=0
+  local results_json="[]"
+
+  _doctor_report() {
+    local status="$1"  # PASS, FAIL, WARN
+    local message="$2"
+
+    case "$status" in
+      PASS) pass_count=$((pass_count + 1)) ;;
+      FAIL) fail_count=$((fail_count + 1)) ;;
+      WARN) warn_count=$((warn_count + 1)) ;;
+    esac
+
+    if [[ "$format" == "json" ]]; then
+      results_json="$(printf '%s' "$results_json" | jq \
+        --arg status "$status" \
+        --arg message "$message" \
+        '. + [{"status": $status, "message": $message}]')"
+    else
+      echo "[${status}] ${message}"
+    fi
+  }
+
+  [[ "$format" != "json" ]] && echo "GlobalContext Doctor" && echo "===================="
+
+  # 1. Store directory exists
+  if [[ -d "$GC_ROOT" ]]; then
+    _doctor_report "PASS" "Store directory exists: $GC_ROOT"
+  else
+    _doctor_report "FAIL" "Store directory does not exist: $GC_ROOT"
+    if [[ "$fix_mode" == "true" ]]; then
+      mkdir -p "$GC_ROOT" && _doctor_report "PASS" "Created store directory: $GC_ROOT"
+    fi
+  fi
+
+  # 2. Store is writable
+  if [[ -d "$GC_ROOT" ]]; then
+    local tmp_test="$GC_ROOT/.doctor-test-$$"
+    if touch "$tmp_test" 2>/dev/null && rm -f "$tmp_test" 2>/dev/null; then
+      _doctor_report "PASS" "Store is writable"
+    else
+      _doctor_report "FAIL" "Store is not writable"
+    fi
+  fi
+
+  # 3. Required directories exist
+  local all_dirs_exist=true
+  for dir_name in events projections bin; do
+    if [[ ! -d "$GC_ROOT/$dir_name" ]]; then
+      all_dirs_exist=false
+      if [[ "$fix_mode" == "true" ]]; then
+        mkdir -p "$GC_ROOT/$dir_name"
+      fi
+    fi
+  done
+  if [[ "$all_dirs_exist" == "true" ]]; then
+    _doctor_report "PASS" "Required directories exist (events, projections, bin)"
+  else
+    if [[ "$fix_mode" == "true" ]]; then
+      _doctor_report "PASS" "Required directories created (events, projections, bin)"
+    else
+      _doctor_report "FAIL" "Missing required directories. Run with --fix to create."
+    fi
+  fi
+
+  # 4. config.json exists and is valid
+  if [[ -f "$GC_CONFIG_FILE" ]]; then
+    if jq -e '.' "$GC_CONFIG_FILE" >/dev/null 2>&1; then
+      local version
+      version="$(jq -r '.version // "unknown"' "$GC_CONFIG_FILE" 2>/dev/null)"
+      _doctor_report "PASS" "config.json is valid (version: ${version})"
+    else
+      _doctor_report "FAIL" "config.json exists but is not valid JSON"
+    fi
+  else
+    _doctor_report "FAIL" "config.json does not exist"
+  fi
+
+  # 5. capture-event is executable
+  if [[ -x "$GC_BIN_DIR/capture-event" ]]; then
+    _doctor_report "PASS" "capture-event is executable"
+  else
+    _doctor_report "WARN" "capture-event not found or not executable at $GC_BIN_DIR/capture-event"
+  fi
+
+  # 6. project is executable
+  if [[ -x "$GC_BIN_DIR/project" ]]; then
+    _doctor_report "PASS" "project is executable"
+  else
+    _doctor_report "WARN" "project not found or not executable at $GC_BIN_DIR/project"
+  fi
+
+  # 7. gc-query is executable
+  if [[ -x "$GC_BIN_DIR/gc-query" ]]; then
+    _doctor_report "PASS" "gc-query is executable"
+  else
+    _doctor_report "WARN" "gc-query not found at $GC_BIN_DIR/gc-query (running from source)"
+  fi
+
+  # 8. Hooks installed
+  local claude_settings="$HOME/.claude/settings.json"
+  if [[ -f "$claude_settings" ]]; then
+    if grep -q "GlobalContext\|gc-hook\|capture-event" "$claude_settings" 2>/dev/null; then
+      _doctor_report "PASS" "Hooks found in ~/.claude/settings.json"
+    else
+      _doctor_report "WARN" "Hooks not found in ~/.claude/settings.json"
+    fi
+  else
+    _doctor_report "WARN" "~/.claude/settings.json does not exist"
+  fi
+
+  # 9. jq is available
+  if command -v jq &>/dev/null; then
+    local jq_version
+    jq_version="$(jq --version 2>/dev/null || echo "unknown")"
+    _doctor_report "PASS" "jq is available (${jq_version})"
+  else
+    _doctor_report "FAIL" "jq is not available"
+  fi
+
+  # 10. Disk space
+  local free_space_kb
+  free_space_kb="$(df -k "$GC_ROOT" 2>/dev/null | tail -1 | awk '{print $4}')" || free_space_kb=0
+  local free_space_mb=$((free_space_kb / 1024))
+  if [[ "$free_space_mb" -ge 10 ]]; then
+    _doctor_report "PASS" "Disk space: ${free_space_mb}MB free"
+  else
+    _doctor_report "FAIL" "Low disk space: only ${free_space_mb}MB free (minimum 10MB)"
+  fi
+
+  # 11. Per-project latest symlink
+  local project_id
+  project_id="$(_gc_current_project_id)"
+  local latest_link="$GC_PROJECTIONS_DIR/$project_id/latest"
+  if [[ -L "$latest_link" ]]; then
+    local target
+    target="$(readlink "$latest_link")"
+    _doctor_report "PASS" "Latest symlink (${project_id}): -> ${target}"
+  else
+    _doctor_report "WARN" "No latest symlink for project ${project_id}"
+  fi
+
+  # 12. Sample event read
+  local sample_event=""
+  if [[ -d "$GC_EVENTS_DIR" ]]; then
+    for pdir in "$GC_EVENTS_DIR"/*/; do
+      [[ -d "$pdir" ]] || continue
+      for sdir in "$pdir"*/; do
+        [[ -d "$sdir" ]] || continue
+        for f in "$sdir"/[0-9]*.json; do
+          [[ -f "$f" ]] || continue
+          sample_event="$f"
+          break 3
+        done
+      done
+    done
+  fi
+
+  if [[ -n "$sample_event" ]]; then
+    if jq -e '.' "$sample_event" >/dev/null 2>&1; then
+      local field_count
+      field_count="$(jq 'keys | length' "$sample_event" 2>/dev/null)"
+      local sample_sid
+      sample_sid="$(jq -r '.session_id // "unknown"' "$sample_event" 2>/dev/null)"
+      local sample_name
+      sample_name="$(basename "$sample_event")"
+      _doctor_report "PASS" "Sample event: valid (session ${sample_sid}, ${sample_name}, ${field_count} fields)"
+    else
+      _doctor_report "FAIL" "Sample event ${sample_event} is not valid JSON"
+    fi
+  else
+    _doctor_report "WARN" "No events found to sample"
+  fi
+
+  # 13. Per-session session.json
+  local sample_session=""
+  if [[ -d "$GC_EVENTS_DIR" ]]; then
+    for pdir in "$GC_EVENTS_DIR"/*/; do
+      [[ -d "$pdir" ]] || continue
+      for sdir in "$pdir"*/; do
+        [[ -d "$sdir" ]] || continue
+        if [[ -f "$sdir/session.json" ]]; then
+          sample_session="$sdir/session.json"
+          break 2
+        fi
+      done
+    done
+  fi
+
+  if [[ -n "$sample_session" ]]; then
+    if jq -e '.' "$sample_session" >/dev/null 2>&1; then
+      local sess_sid sess_ec
+      sess_sid="$(jq -r '.session_id // "unknown"' "$sample_session" 2>/dev/null)"
+      sess_ec="$(jq -r '.event_count // 0' "$sample_session" 2>/dev/null)"
+      _doctor_report "PASS" "Sample session.json: valid (session ${sess_sid}, event_count: ${sess_ec})"
+    else
+      _doctor_report "FAIL" "Sample session.json is not valid JSON"
+    fi
+  else
+    _doctor_report "WARN" "No session.json files found to sample"
+  fi
+
+  # 14. No stale global files
+  local stale_files=false
+  if [[ -f "$GC_ROOT/sessions.json" ]]; then stale_files=true; fi
+  if [[ -f "$GC_ROOT/.sessions.lock" ]]; then stale_files=true; fi
+  if [[ "$stale_files" == "true" ]]; then
+    _doctor_report "WARN" "Stale global files found (sessions.json or .sessions.lock). These are from a pre-Amendment design."
+    if [[ "$fix_mode" == "true" ]]; then
+      rm -f "$GC_ROOT/sessions.json" "$GC_ROOT/.sessions.lock" 2>/dev/null
+      _doctor_report "PASS" "Removed stale global files"
+    fi
+  else
+    _doctor_report "PASS" "No stale global files"
+  fi
+
+  # Summary
+  if [[ "$format" == "json" ]]; then
+    jq -n \
+      --argjson results "$results_json" \
+      --argjson passed "$pass_count" \
+      --argjson warnings "$warn_count" \
+      --argjson failed "$fail_count" \
+      '{results: $results, summary: {passed: $passed, warnings: $warnings, failed: $failed}}'
+  else
+    echo ""
+    echo "Result: ${pass_count} passed, ${warn_count} warning(s), ${fail_count} failed"
+  fi
+
+  if [[ "$fail_count" -gt 0 ]]; then
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatch (Task 03: extended argument parser)
+# ---------------------------------------------------------------------------
+main() {
+  if [[ $# -eq 0 ]]; then
+    _gc_query_usage >&2
+    return 2
+  fi
+
+  local subcommand="$1"
+  shift
+
+  case "$subcommand" in
+    store-size) _gc_query_store_size "$@" ;;
+    status)     _gc_query_status "$@" ;;
+    events)     _gc_query_events "$@" ;;
+    tail)       _gc_query_tail "$@" ;;
+    last)       _gc_query_last "$@" ;;
+    previous|prev) _gc_query_previous "$@" ;;
+    session)    _gc_query_session "$@" ;;
+    sessions)   _gc_query_sessions "$@" ;;
+    search)     _gc_query_search "$@" ;;
+    replay)     _gc_query_replay "$@" ;;
+    watch)      _gc_query_watch "$@" ;;
+    doctor)     _gc_query_doctor "$@" ;;
+    --help|-h)  _gc_query_usage; return 0 ;;
+    *)
+      echo "error: unknown subcommand '$subcommand'" >&2
+      _gc_query_usage >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"

@@ -1,0 +1,501 @@
+#!/usr/bin/env bash
+# gc-doctor -- Health check command for GlobalContext.
+# Verifies prerequisites, directory structure, permissions, hook configuration,
+# and end-to-end event flow.
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Resolve lib directory and source dependencies
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
+if [ -f "$LIB_DIR/paths.sh" ]; then
+  source "$LIB_DIR/paths.sh"
+else
+  GC_ROOT="${CLAUDE_CONTEXT_PATH:-$HOME/.claude-context}"
+  if [ -f "$GC_ROOT/lib/paths.sh" ]; then
+    LIB_DIR="$GC_ROOT/lib"
+    source "$LIB_DIR/paths.sh"
+  else
+    GC_ROOT="${CLAUDE_CONTEXT_PATH:-$HOME/.claude-context}"
+  fi
+fi
+
+if [ -f "$LIB_DIR/prerequisites.sh" ]; then
+  source "$LIB_DIR/prerequisites.sh"
+fi
+if [ -f "$LIB_DIR/version.sh" ]; then
+  source "$LIB_DIR/version.sh"
+fi
+
+# ---------------------------------------------------------------------------
+# Parse flags
+# ---------------------------------------------------------------------------
+OPT_JSON=false
+OPT_VERBOSE=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json)
+      OPT_JSON=true
+      shift
+      ;;
+    --verbose)
+      OPT_VERBOSE=true
+      shift
+      ;;
+    --help|-h)
+      echo "Usage: gc-doctor [--json] [--verbose]"
+      echo ""
+      echo "Options:"
+      echo "  --json     Output results as JSON"
+      echo "  --verbose  Show detailed information for each check"
+      exit 0
+      ;;
+    *)
+      echo "error: unknown option '$1'" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+GC_BASE="${GC_ROOT:-${CLAUDE_CONTEXT_PATH:-$HOME/.claude-context}}"
+CHECKS=()       # Array of "name|category|status|detail" strings
+OVERALL="pass"
+
+_add_check() {
+  local name="$1"
+  local category="$2"
+  local status="$3"  # pass, fail, warn, info
+  local detail="${4:-}"
+  CHECKS+=("${name}|${category}|${status}|${detail}")
+  if [[ "$status" == "fail" ]]; then
+    OVERALL="fail"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Check 1: Prerequisites
+# ---------------------------------------------------------------------------
+_check_prerequisites() {
+  if type gc_check_prerequisites &>/dev/null; then
+    gc_check_prerequisites || true
+
+    local required_names=("bash" "jq" "node" "sha256sum")
+    local optional_names=("flock" "git" "uuidgen")
+
+    for name in "${required_names[@]}"; do
+      local status="${PREREQ_STATUS[$name]:-unknown}"
+      local version="${PREREQ_VERSION[$name]:-}"
+      if [[ "$status" == "ok" ]]; then
+        _add_check "$name" "prerequisites" "pass" "$version"
+      else
+        _add_check "$name" "prerequisites" "fail" "${PREREQ_MESSAGE[$name]:-missing}"
+      fi
+    done
+
+    for name in "${optional_names[@]}"; do
+      local status="${PREREQ_STATUS[$name]:-unknown}"
+      local version="${PREREQ_VERSION[$name]:-}"
+      if [[ "$status" == "ok" ]]; then
+        _add_check "$name" "prerequisites" "pass" "$version (optional)"
+      else
+        _add_check "$name" "prerequisites" "info" "not found (optional)"
+      fi
+    done
+  else
+    _add_check "prerequisites" "prerequisites" "warn" "prerequisites.sh not available"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Checks 2-5: Structure
+# ---------------------------------------------------------------------------
+_check_structure() {
+  # Check 2: Store directory exists
+  if [ -d "$GC_BASE" ]; then
+    _add_check "Store directory" "structure" "pass" "$GC_BASE"
+  else
+    _add_check "Store directory" "structure" "fail" "$GC_BASE not found"
+    return  # Cannot check further
+  fi
+
+  # Check 3: Store permissions
+  local perms
+  perms=$(stat -c '%a' "$GC_BASE" 2>/dev/null || stat -f '%Lp' "$GC_BASE" 2>/dev/null)
+  if [[ "$perms" == "700" ]]; then
+    _add_check "Store permissions (700)" "structure" "pass" "$perms"
+  else
+    _add_check "Store permissions (700)" "structure" "fail" "found $perms"
+  fi
+
+  # Check 4: events/ directory
+  if [ -d "$GC_BASE/events" ]; then
+    _add_check "events/ directory" "structure" "pass" ""
+  else
+    _add_check "events/ directory" "structure" "fail" "not found"
+  fi
+
+  # Check 5: projections/ directory
+  if [ -d "$GC_BASE/projections" ]; then
+    _add_check "projections/ directory" "structure" "pass" ""
+  else
+    _add_check "projections/ directory" "structure" "fail" "not found"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Checks 6-8: Configuration
+# ---------------------------------------------------------------------------
+_check_config() {
+  # Check 6: config.json exists and is valid JSON
+  if [ -f "$GC_BASE/config.json" ]; then
+    if jq -e '.' "$GC_BASE/config.json" >/dev/null 2>&1; then
+      _add_check "config.json" "config" "pass" "valid JSON"
+    else
+      _add_check "config.json" "config" "fail" "invalid JSON"
+    fi
+  else
+    _add_check "config.json" "config" "fail" "not found"
+  fi
+
+  # Check 7: config.json version field
+  if [ -f "$GC_BASE/config.json" ]; then
+    local cfg_version
+    cfg_version=$(jq -r '.version // empty' "$GC_BASE/config.json" 2>/dev/null)
+    if [ -n "$cfg_version" ]; then
+      _add_check "config.json version" "config" "pass" "$cfg_version"
+    else
+      _add_check "config.json version" "config" "fail" "version field missing"
+    fi
+  fi
+
+  # Check 8: VERSION file
+  if [ -f "$GC_BASE/VERSION" ]; then
+    local ver
+    ver=$(tr -d '[:space:]' < "$GC_BASE/VERSION")
+    _add_check "VERSION file" "config" "pass" "$ver"
+  else
+    _add_check "VERSION file" "config" "fail" "not found"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Checks 9-11: Scripts
+# ---------------------------------------------------------------------------
+_check_scripts() {
+  # Check 9: bin/ scripts present
+  local expected_bins=("gc-init" "gc-query" "gc-install" "gc-uninstall" "gc-doctor")
+  local missing_bins=()
+  local found_bins=0
+
+  for script in "${expected_bins[@]}"; do
+    if [ -f "$GC_BASE/bin/$script" ]; then
+      found_bins=$((found_bins + 1))
+    else
+      missing_bins+=("$script")
+    fi
+  done
+
+  # Also count any additional bin scripts that might exist from other stories
+  local total_bins=0
+  if [ -d "$GC_BASE/bin" ]; then
+    total_bins=$(ls -1 "$GC_BASE/bin/" 2>/dev/null | wc -l)
+  fi
+
+  if [ ${#missing_bins[@]} -eq 0 ]; then
+    _add_check "bin/ scripts ($total_bins)" "scripts" "pass" ""
+  else
+    _add_check "bin/ scripts" "scripts" "fail" "missing: ${missing_bins[*]}"
+  fi
+
+  # Check 10: bin/ scripts executable
+  local non_exec=()
+  if [ -d "$GC_BASE/bin" ]; then
+    for script in "$GC_BASE/bin/"*; do
+      [ -f "$script" ] || continue
+      if [ ! -x "$script" ]; then
+        non_exec+=("$(basename "$script")")
+      fi
+    done
+  fi
+
+  if [ ${#non_exec[@]} -eq 0 ]; then
+    _add_check "bin/ executable" "scripts" "pass" ""
+  else
+    _add_check "bin/ executable" "scripts" "fail" "not executable: ${non_exec[*]}"
+  fi
+
+  # Check 11: lib/ modules present
+  local lib_count=0
+  if [ -d "$GC_BASE/lib" ]; then
+    lib_count=$(ls -1 "$GC_BASE/lib/" 2>/dev/null | wc -l)
+  fi
+  if [ "$lib_count" -gt 0 ]; then
+    _add_check "lib/ modules ($lib_count)" "scripts" "pass" ""
+  else
+    _add_check "lib/ modules" "scripts" "fail" "no modules found"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Checks 12-13: Hooks (delegated to gc-install-hooks, stub if not available)
+# ---------------------------------------------------------------------------
+_check_hooks() {
+  local settings_file="$HOME/.claude/settings.json"
+
+  if [ ! -f "$settings_file" ]; then
+    _add_check "Hooks registered" "hooks" "info" "settings.json not found"
+    _add_check "Hook commands valid" "hooks" "info" "skipped (no settings.json)"
+    return
+  fi
+
+  # Count hooks that reference gc-hook or capture-event
+  local hook_count=0
+  if command -v jq &>/dev/null; then
+    hook_count=$(jq '[.hooks // {} | to_entries[] | select(.value | tostring | test("gc-hook|capture-event|claude-context"))] | length' "$settings_file" 2>/dev/null || echo 0)
+  fi
+
+  if [ "$hook_count" -gt 0 ]; then
+    _add_check "Hooks registered ($hook_count)" "hooks" "pass" ""
+  else
+    _add_check "Hooks registered" "hooks" "info" "no GC hooks found (Story 02)"
+  fi
+
+  _add_check "Hook commands" "hooks" "info" "validation deferred to Story 02"
+}
+
+# ---------------------------------------------------------------------------
+# Checks 14-15: End-to-end write/read test
+# ---------------------------------------------------------------------------
+_check_end_to_end() {
+  if [ ! -d "$GC_BASE/events" ] || ! command -v jq &>/dev/null; then
+    _add_check "Write test" "end-to-end" "fail" "prerequisites not met"
+    _add_check "Read test" "end-to-end" "fail" "skipped"
+    return
+  fi
+
+  local test_project="__gc_doctor_test__"
+  local test_session="__gc_doctor_test_session__"
+  local test_dir="$GC_BASE/events/$test_project/$test_session"
+  local test_ts
+  test_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local test_event
+  test_event=$(jq -n \
+    --arg etype "DoctorTestEvent" \
+    --arg ts "$test_ts" \
+    '{
+      event_id: "doctor-test-event",
+      event_type: $etype,
+      project_id: "__gc_doctor_test__",
+      session_id: "__gc_doctor_test_session__",
+      sequence: 1,
+      timestamp: $ts,
+      data: {"test": true}
+    }')
+
+  # Write test
+  mkdir -p "$test_dir"
+  if echo "$test_event" > "$test_dir/000001.json" 2>/dev/null; then
+    _add_check "Write test" "end-to-end" "pass" ""
+  else
+    _add_check "Write test" "end-to-end" "fail" "could not write test event"
+    rm -rf "$test_dir" 2>/dev/null
+    return
+  fi
+
+  # Read test
+  if [ -f "$test_dir/000001.json" ]; then
+    local read_type
+    read_type=$(jq -r '.event_type' "$test_dir/000001.json" 2>/dev/null)
+    if [ "$read_type" = "DoctorTestEvent" ]; then
+      _add_check "Read test" "end-to-end" "pass" ""
+    else
+      _add_check "Read test" "end-to-end" "fail" "event_type mismatch: $read_type"
+    fi
+  else
+    _add_check "Read test" "end-to-end" "fail" "event file not found after write"
+  fi
+
+  # Cleanup
+  rm -rf "$test_dir" 2>/dev/null
+  # Remove parent test project dir if empty
+  rmdir "$GC_BASE/events/$test_project" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# Checks 16-18: Diagnostics
+# ---------------------------------------------------------------------------
+_gather_diagnostics() {
+  local store_size="0"
+  local session_count=0
+  local event_count=0
+  local project_count=0
+  local orphan_count=0
+
+  if [ -d "$GC_BASE" ]; then
+    store_size=$(du -sb "$GC_BASE" 2>/dev/null | cut -f1 || echo 0)
+  fi
+
+  if [ -d "$GC_BASE/events" ]; then
+    project_count=$(find "$GC_BASE/events" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l || echo 0)
+    session_count=$(find "$GC_BASE/events" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l || echo 0)
+    event_count=$(find "$GC_BASE/events" -name '[0-9]*.json' 2>/dev/null | wc -l || echo 0)
+    orphan_count=$(find "$GC_BASE/events" -name '*.tmp.*' 2>/dev/null | wc -l || echo 0)
+  fi
+
+  # Store diagnostics as global vars for output
+  DIAG_STORE_SIZE_BYTES="$store_size"
+  DIAG_SESSION_COUNT="$session_count"
+  DIAG_EVENT_COUNT="$event_count"
+  DIAG_PROJECT_COUNT="$project_count"
+  DIAG_ORPHAN_COUNT="$orphan_count"
+}
+
+# ---------------------------------------------------------------------------
+# Output: Text format
+# ---------------------------------------------------------------------------
+_output_text() {
+  local version="unknown"
+  if [ -f "$GC_BASE/VERSION" ]; then
+    version=$(tr -d '[:space:]' < "$GC_BASE/VERSION")
+  fi
+
+  echo "GlobalContext Doctor"
+  echo "===================="
+  echo "Store: $GC_BASE (v${version})"
+  echo ""
+
+  local current_category=""
+  for check in "${CHECKS[@]}"; do
+    local name category status detail
+    IFS='|' read -r name category status detail <<< "$check"
+
+    # Print category header
+    if [[ "$category" != "$current_category" ]]; then
+      current_category="$category"
+      local header
+      header=$(echo "$category" | sed 's/\b\(.\)/\u\1/g')
+      echo "${header}:"
+    fi
+
+    local indicator
+    case "$status" in
+      pass) indicator="PASS" ;;
+      fail) indicator="FAIL" ;;
+      warn) indicator="WARN" ;;
+      info) indicator="INFO" ;;
+      *)    indicator="????" ;;
+    esac
+
+    if [[ -n "$detail" && "$OPT_VERBOSE" == "true" ]]; then
+      printf "  %-30s %s (%s)\n" "$name" "$indicator" "$detail"
+    elif [[ -n "$detail" && ("$status" == "fail" || "$status" == "pass") ]]; then
+      printf "  %-30s %s (%s)\n" "$name" "$indicator" "$detail"
+    else
+      printf "  %-30s %s\n" "$name" "$indicator"
+    fi
+  done
+
+  # Diagnostics
+  echo ""
+  echo "Diagnostics:"
+  local size_human
+  if [ "$DIAG_STORE_SIZE_BYTES" -ge 1048576 ] 2>/dev/null; then
+    size_human="$(awk "BEGIN { printf \"%.1f MB\", $DIAG_STORE_SIZE_BYTES / 1048576 }")"
+  elif [ "$DIAG_STORE_SIZE_BYTES" -ge 1024 ] 2>/dev/null; then
+    size_human="$(awk "BEGIN { printf \"%.1f KB\", $DIAG_STORE_SIZE_BYTES / 1024 }")"
+  else
+    size_human="${DIAG_STORE_SIZE_BYTES} B"
+  fi
+  printf "  %-30s %s\n" "Store size" "$size_human"
+  printf "  %-30s %s (across %s projects)\n" "Sessions" "$DIAG_SESSION_COUNT" "$DIAG_PROJECT_COUNT"
+  printf "  %-30s %s\n" "Total events" "$DIAG_EVENT_COUNT"
+  printf "  %-30s %s\n" "Orphan temp files" "$DIAG_ORPHAN_COUNT"
+
+  echo ""
+  if [[ "$OVERALL" == "pass" ]]; then
+    echo "Result: ALL CHECKS PASSED"
+  else
+    echo "Result: SOME CHECKS FAILED"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Output: JSON format
+# ---------------------------------------------------------------------------
+_output_json() {
+  local version="unknown"
+  if [ -f "$GC_BASE/VERSION" ]; then
+    version=$(tr -d '[:space:]' < "$GC_BASE/VERSION")
+  fi
+
+  local checks_json="["
+  local first=true
+  for check in "${CHECKS[@]}"; do
+    local name category status detail
+    IFS='|' read -r name category status detail <<< "$check"
+    if [[ "$first" == "true" ]]; then
+      first=false
+    else
+      checks_json+=","
+    fi
+    checks_json+=$(jq -n \
+      --arg name "$name" \
+      --arg category "$category" \
+      --arg status "$status" \
+      --arg detail "$detail" \
+      '{name: $name, category: $category, status: $status, detail: $detail}')
+  done
+  checks_json+="]"
+
+  jq -n \
+    --arg store_path "$GC_BASE" \
+    --arg version "$version" \
+    --argjson checks "$checks_json" \
+    --argjson store_size_bytes "${DIAG_STORE_SIZE_BYTES:-0}" \
+    --argjson session_count "${DIAG_SESSION_COUNT:-0}" \
+    --argjson project_count "${DIAG_PROJECT_COUNT:-0}" \
+    --argjson event_count "${DIAG_EVENT_COUNT:-0}" \
+    --argjson orphan_temp_files "${DIAG_ORPHAN_COUNT:-0}" \
+    --arg overall "$OVERALL" \
+    '{
+      store_path: $store_path,
+      version: $version,
+      checks: $checks,
+      diagnostics: {
+        store_size_bytes: $store_size_bytes,
+        session_count: $session_count,
+        project_count: $project_count,
+        event_count: $event_count,
+        orphan_temp_files: $orphan_temp_files
+      },
+      overall: $overall
+    }'
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+_check_prerequisites
+_check_structure
+_check_config
+_check_scripts
+_check_hooks
+_check_end_to_end
+_gather_diagnostics
+
+if [[ "$OPT_JSON" == "true" ]]; then
+  _output_json
+else
+  _output_text
+fi
+
+if [[ "$OVERALL" == "pass" ]]; then
+  exit 0
+else
+  exit 1
+fi

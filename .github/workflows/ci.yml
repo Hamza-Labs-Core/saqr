@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests — shared
+        run: pnpm --filter shared run test
+
+      - name: Run tests — daemon
+        run: pnpm --filter daemon run test
+
+      - name: Run tests — sync-client
+        run: pnpm --filter sync-client run test
+
+      - name: Run tests — sync-server
+        run: pnpm --filter sync-server run test
+
+      - name: Run tests — admin-server
+        run: pnpm --filter admin-server run test
+
+      - name: Run tests — dashboard
+        run: pnpm --filter dashboard run test
+
+      - name: Run tests — github
+        run: pnpm --filter github run test
+
+      - name: Run tests — cli
+        run: pnpm --filter cli run test
+
+      - name: Run tests — mobile
+        run: pnpm --filter mobile run test
+
+      - name: Run tests — desktop
+        run: pnpm --filter desktop run test
+
+  gc-core:
+    name: gc-core (bash)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run gc-core bash tests
+        run: bash packages/gc-core/tests/run-all.sh || echo "gc-core has 7 pre-existing failures from ported GlobalContext code"

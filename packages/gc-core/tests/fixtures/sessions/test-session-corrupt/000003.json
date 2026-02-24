@@ -1,0 +1,11 @@
+{
+  "event_id": "c3",
+  "event_type": "UserPromptReceived",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-corrupt",
+  "sequence": 3,
+  "timestamp": "2026-01-01T00:00:02.000Z",
+  "data": {
+    "prompt": "After the corrupt event"
+  }
+}

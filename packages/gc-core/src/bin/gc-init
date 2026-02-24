@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# gc-init -- Initialize the GlobalContext store directory structure.
+# Idempotent: safe to run repeatedly without data loss.
+# Amendment 1: No sessions.json or .sessions.lock created.
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Resolve lib directory and source dependencies
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
+
+# shellcheck source=../lib/paths.sh
+source "$LIB_DIR/paths.sh"
+# shellcheck source=../lib/atomic_write.sh
+source "$LIB_DIR/atomic_write.sh"
+# shellcheck source=../lib/config.sh
+source "$LIB_DIR/config.sh"
+
+# ---------------------------------------------------------------------------
+# Summary tracking
+# ---------------------------------------------------------------------------
+CREATED=()
+SKIPPED=()
+
+_track() {
+  local action="$1"
+  local resource="$2"
+  if [[ "$action" == "created" ]]; then
+    CREATED+=("$resource")
+  else
+    SKIPPED+=("$resource")
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Main init logic
+# ---------------------------------------------------------------------------
+echo "Initializing GlobalContext store at $GC_ROOT"
+
+# Step 3: Create root directory
+if [[ -d "$GC_ROOT" ]]; then
+  _track skipped "$GC_ROOT (root)"
+else
+  _track created "$GC_ROOT (root)"
+fi
+mkdir -p "$GC_ROOT" && chmod 700 "$GC_ROOT"
+
+# Step 4: Create events/
+if [[ -d "$GC_EVENTS_DIR" ]]; then
+  _track skipped "$GC_EVENTS_DIR (events)"
+else
+  _track created "$GC_EVENTS_DIR (events)"
+fi
+mkdir -p "$GC_EVENTS_DIR" && chmod 700 "$GC_EVENTS_DIR"
+
+# Step 5: Create projections/
+if [[ -d "$GC_PROJECTIONS_DIR" ]]; then
+  _track skipped "$GC_PROJECTIONS_DIR (projections)"
+else
+  _track created "$GC_PROJECTIONS_DIR (projections)"
+fi
+mkdir -p "$GC_PROJECTIONS_DIR" && chmod 700 "$GC_PROJECTIONS_DIR"
+
+# Step 6: Create bin/
+if [[ -d "$GC_BIN_DIR" ]]; then
+  _track skipped "$GC_BIN_DIR (bin)"
+else
+  _track created "$GC_BIN_DIR (bin)"
+fi
+mkdir -p "$GC_BIN_DIR" && chmod 755 "$GC_BIN_DIR"
+
+# Step 7: Create config.json if it does not exist
+if [[ -f "$GC_CONFIG_FILE" ]]; then
+  echo "config.json already exists"
+  _track skipped "config.json"
+else
+  gc_config_create
+  chmod 600 "$GC_CONFIG_FILE"
+  _track created "config.json"
+fi
+
+# Step 8: Install bin/ scripts (always overwrite for upgrades)
+# Copy any scripts from the project's src/bin/ that are not gc-init itself
+_install_bin_scripts() {
+  local src_bin_dir="$SCRIPT_DIR"
+  local installed=0
+  for script in "$src_bin_dir"/*; do
+    [[ -f "$script" ]] || continue
+    local script_name
+    script_name="$(basename "$script")"
+    # Skip gc-init itself -- it runs from src/bin/
+    [[ "$script_name" == "gc-init" ]] && continue
+    cp "$script" "$GC_BIN_DIR/$script_name"
+    chmod 755 "$GC_BIN_DIR/$script_name"
+    installed=$((installed + 1))
+  done
+  if [[ $installed -gt 0 ]]; then
+    _track created "bin/ scripts ($installed installed)"
+  fi
+}
+_install_bin_scripts
+
+# Step 9: Clean orphan temp files
+orphan_count=0
+if [[ -d "$GC_EVENTS_DIR" ]]; then
+  while IFS= read -r -d '' tmpfile; do
+    rm -f "$tmpfile"
+    orphan_count=$((orphan_count + 1))
+  done < <(find "$GC_EVENTS_DIR" -name '*.tmp.*' -print0 2>/dev/null || true)
+fi
+if [[ $orphan_count -gt 0 ]]; then
+  echo "Cleaned $orphan_count orphan temp file(s)"
+fi
+
+# Step 10: Validate writability
+_test_file="$GC_ROOT/.gc-init-write-test.$$"
+if ! touch "$_test_file" 2>/dev/null; then
+  echo "error: $GC_ROOT is not writable" >&2
+  exit 1
+fi
+rm -f "$_test_file"
+
+# Step 11: Validate disk space (>= 10MB free)
+_check_disk_space() {
+  local path="$1"
+  local min_kb=10240  # 10 MB in KB
+  local avail_kb
+  # df -P for POSIX-portable output, extract available KB from the second line
+  avail_kb=$(df -P "$path" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [[ -z "$avail_kb" ]]; then
+    echo "warning: could not determine free disk space" >&2
+    return 0
+  fi
+  if [[ "$avail_kb" -lt "$min_kb" ]]; then
+    echo "error: insufficient disk space at $path (${avail_kb}KB available, need ${min_kb}KB)" >&2
+    return 1
+  fi
+  return 0
+}
+if ! _check_disk_space "$GC_ROOT"; then
+  exit 1
+fi
+
+# Step 12: Print summary
+echo ""
+echo "=== GlobalContext Init Summary ==="
+if [[ ${#CREATED[@]} -gt 0 ]]; then
+  echo "Created:"
+  for item in "${CREATED[@]}"; do
+    echo "  + $item"
+  done
+fi
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+  echo "Skipped (already exists):"
+  for item in "${SKIPPED[@]}"; do
+    echo "  - $item"
+  done
+fi
+echo "Store ready at $GC_ROOT"
+
+exit 0

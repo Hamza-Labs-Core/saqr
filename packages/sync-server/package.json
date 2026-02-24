@@ -1,0 +1,28 @@
+{
+  "name": "@saqr/sync-server",
+  "version": "0.1.0",
+  "description": "Cloudflare Workers sync server for AgentContext",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "dependencies": {
+    "@saqr/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "@types/node": "^22.0.0",
+    "@cloudflare/workers-types": "^4.0.0",
+    "wrangler": "^4.0.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  }
+}

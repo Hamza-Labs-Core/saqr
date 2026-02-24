@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# GlobalContext hook wrapper v1
+# Usage: gc-hook <EventType>
+# Called by Claude Code hooks. Reads JSON from stdin, passes to capture-event.
+# GUARANTEES: exit 0, zero stdout, zero stderr.
+# NOTE: intentionally no set -euo pipefail here -- the exit-0 guarantee
+# takes priority. If $1 is missing we still must exit 0.
+#
+# IMPORTANT: capture-event runs in the background (fire-and-forget).
+# Synchronous execution blocked Claude Code's prompt pipeline and caused
+# UserPromptSubmit to loop during plan mode exit. See events 218-242 in
+# session e0a40ac6 for the incident. Backgrounding ensures the hook
+# returns instantly (exit 0) so Claude Code never retries/re-fires.
+
+EVENT_TYPE="${1:-UnknownEvent}"
+
+# Resolve storage path: CLAUDE_CONTEXT_PATH env var, or default
+GC_BASE="${CLAUDE_CONTEXT_PATH:-$HOME/.claude-context}"
+
+# Read stdin eagerly into a variable. Using </dev/stdin in a subshell is
+# unreliable with pipe-based stdin from Claude Code (silent empty reads).
+PAYLOAD=$(cat 2>/dev/null) || true
+
+# Enrich TurnCompleted with Claude's response from the transcript.
+# Extraction happens inside the background subshell so gc-hook still
+# exits instantly. tail -200 avoids reading the full file (<5ms).
+_enrich_turn_completed() {
+  local payload="$1"
+  local transcript
+  transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null) || true
+
+  if [ -z "$transcript" ] || [ ! -f "$transcript" ]; then
+    printf '%s' "$payload"
+    return
+  fi
+
+  local response
+  response=$(tail -200 "$transcript" \
+    | jq -r -s '
+        [.[] | select(.type == "assistant")]
+        | last
+        | .message.content
+        | [.[] | select(.type == "text") | .text]
+        | join("")' 2>/dev/null) || true
+
+  if [ -z "$response" ] || [ "$response" = "null" ]; then
+    printf '%s' "$payload"
+    return
+  fi
+
+  # Truncate to 2000 chars to keep events reasonable
+  local response_length=${#response}
+  if [ "$response_length" -gt 2000 ]; then
+    response="${response:0:2000}..."
+  fi
+
+  printf '%s' "$payload" | jq -c \
+    --arg resp "$response" \
+    --argjson resp_len "$response_length" \
+    '. + {response: $resp, response_length: $resp_len}' 2>/dev/null \
+    || printf '%s' "$payload"
+}
+
+# Fire-and-forget: run capture-event in background to avoid blocking
+# Claude Code's event pipeline. The flock in capture-event still
+# serializes concurrent writes, so ordering is preserved.
+if [ "${GC_DEBUG:-0}" = "1" ]; then
+  # Source debug helper if available; fail silently if not
+  source "$GC_BASE/lib/debug_log.sh" 2>/dev/null || true
+  if type gc_debug_log &>/dev/null; then
+    gc_debug_log "gc-hook invoked: event_type=$EVENT_TYPE payload_len=${#PAYLOAD}"
+    if [ "$EVENT_TYPE" = "TurnCompleted" ]; then
+      (PAYLOAD=$(_enrich_turn_completed "$PAYLOAD"); printf '%s' "$PAYLOAD" | "$GC_BASE/bin/capture-event" "$EVENT_TYPE" >/dev/null 2>>"${GC_LOG_FILE:-/dev/null}") &
+    else
+      (printf '%s' "$PAYLOAD" | "$GC_BASE/bin/capture-event" "$EVENT_TYPE" >/dev/null 2>>"${GC_LOG_FILE:-/dev/null}") &
+    fi
+  else
+    if [ "$EVENT_TYPE" = "TurnCompleted" ]; then
+      (PAYLOAD=$(_enrich_turn_completed "$PAYLOAD"); printf '%s' "$PAYLOAD" | "$GC_BASE/bin/capture-event" "$EVENT_TYPE" >/dev/null 2>/dev/null) &
+    else
+      (printf '%s' "$PAYLOAD" | "$GC_BASE/bin/capture-event" "$EVENT_TYPE" >/dev/null 2>/dev/null) &
+    fi
+  fi
+else
+  if [ "$EVENT_TYPE" = "TurnCompleted" ]; then
+    (PAYLOAD=$(_enrich_turn_completed "$PAYLOAD"); printf '%s' "$PAYLOAD" | "$GC_BASE/bin/capture-event" "$EVENT_TYPE" >/dev/null 2>/dev/null) &
+  else
+    (printf '%s' "$PAYLOAD" | "$GC_BASE/bin/capture-event" "$EVENT_TYPE" >/dev/null 2>/dev/null) &
+  fi
+fi
+
+# Auto-launch dashboard on SessionStarted if not already running
+if [ "$EVENT_TYPE" = "SessionStarted" ]; then
+  _gc_dashboard_running() {
+    local pidfile="$GC_BASE/.dashboard.pid"
+    [ -f "$pidfile" ] || return 1
+    local pid
+    pid=$(head -1 "$pidfile" 2>/dev/null) || return 1
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+  }
+  if ! _gc_dashboard_running; then
+    (nohup "$GC_BASE/bin/gc-dashboard" >/dev/null 2>&1 &)
+  fi
+fi
+
+disown 2>/dev/null || true
+
+exit 0

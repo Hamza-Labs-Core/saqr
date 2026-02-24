@@ -1,0 +1,15 @@
+{
+  "event_id": "e7",
+  "event_type": "ToolCallRequested",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-001",
+  "sequence": 7,
+  "timestamp": "2026-01-01T00:00:20.000Z",
+  "data": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm test"
+    },
+    "tool_use_id": "tu_003"
+  }
+}

@@ -1,0 +1,509 @@
+{
+  "version": 1,
+  "updated": "2026-02-23",
+  "rules": [
+    {
+      "id": "cors-wildcard",
+      "description": "CORS wildcard origin allows any website to make authenticated requests",
+      "severity": "block",
+      "category": "web-security",
+      "tags": ["cors", "owasp", "express", "http"],
+      "curated": true,
+      "installs": 4820,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx"],
+      "patterns": [
+        "Access-Control-Allow-Origin.*\\*",
+        "cors\\(\\{[^}]*origin:\\s*['\"]\\*['\"]",
+        "cors\\(\\{[^}]*origin:\\s*true",
+        "origin:\\s*\\[?['\"]\\*['\"]"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow cors-wildcard",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__"
+      ],
+      "suggestion": "Use an explicit allowlist of origins: cors({ origin: ['https://your-domain.com'] })"
+    },
+    {
+      "id": "weak-hash",
+      "description": "MD5/SHA1/SHA256 are not suitable for password hashing — use bcrypt or argon2",
+      "severity": "block",
+      "category": "cryptography",
+      "tags": ["password", "hashing", "owasp", "crypto"],
+      "curated": true,
+      "installs": 4215,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "createHash\\(['\"]md5['\"]\\)",
+        "createHash\\(['\"]sha1['\"]\\)",
+        "createHash\\(['\"]sha256['\"]\\).*password",
+        "password.*createHash\\(['\"]sha256['\"]\\)"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow weak-hash",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "checksum",
+        "integrity",
+        "content.hash",
+        "file.hash",
+        "sha256.*blob",
+        "blob.*sha256"
+      ],
+      "suggestion": "Use argon2id or bcrypt for password hashing. SHA-256 is fine for content checksums."
+    },
+    {
+      "id": "path-traversal",
+      "description": "Joining user input directly into file paths enables directory traversal attacks",
+      "severity": "block",
+      "category": "web-security",
+      "tags": ["path", "lfi", "owasp", "filesystem"],
+      "curated": true,
+      "installs": 3980,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "path\\.(join|resolve)\\([^)]*req\\.(params|body|query)",
+        "path\\.(join|resolve)\\([^)]*request\\.(params|body|query)",
+        "readFile(Sync)?\\([^)]*req\\.(params|body|query)",
+        "readFile(Sync)?\\([^)]*\\$\\{.*req\\."
+      ],
+      "exclude_patterns": [
+        "codeguard:allow path-traversal",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "sanitize",
+        "normalize",
+        "\\.replace\\("
+      ],
+      "suggestion": "Sanitize by resolving the path and checking it starts with the intended base directory, or strip '..' sequences."
+    },
+    {
+      "id": "unbounded-body",
+      "description": "Express body parser without size limit can cause OOM denial of service",
+      "severity": "warn",
+      "category": "web-security",
+      "tags": ["express", "dos", "body-parser", "limit"],
+      "curated": true,
+      "installs": 3650,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "express\\.json\\(\\)",
+        "express\\.urlencoded\\(\\)",
+        "bodyParser\\.json\\(\\)",
+        "bodyParser\\.urlencoded\\(\\)"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow unbounded-body",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "limit:",
+        "limit'"
+      ],
+      "suggestion": "Add a size limit: express.json({ limit: '1mb' })"
+    },
+    {
+      "id": "permission-timeout-allow",
+      "description": "Security permission timeouts should deny by default, not allow",
+      "severity": "block",
+      "category": "auth",
+      "tags": ["timeout", "permission", "security", "default-deny"],
+      "curated": true,
+      "installs": 2890,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "timeout.*\\b(allow|grant|permit|approve)\\b",
+        "\\b(allow|grant|permit|approve)\\b.*timeout",
+        "setTimeout.*\\b(allow|grant|permit)\\b"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow permission-timeout-allow",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "deny",
+        "reject",
+        "block"
+      ],
+      "suggestion": "Security timeouts should default to DENY. Use: resolve('denied') or reject(new TimeoutError())."
+    },
+    {
+      "id": "eval-usage",
+      "description": "eval() and new Function() enable code injection attacks",
+      "severity": "block",
+      "category": "injection",
+      "tags": ["eval", "code-injection", "owasp", "xss"],
+      "curated": true,
+      "installs": 5130,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx"],
+      "patterns": [
+        "\\beval\\s*\\(",
+        "new\\s+Function\\s*\\("
+      ],
+      "exclude_patterns": [
+        "codeguard:allow eval-usage",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "eslint",
+        "no-eval"
+      ],
+      "suggestion": "Avoid eval/Function constructors. Parse data with JSON.parse() or use a sandboxed interpreter."
+    },
+    {
+      "id": "hardcoded-secret",
+      "description": "Hardcoded secrets in source code get committed and leaked",
+      "severity": "block",
+      "category": "secrets",
+      "tags": ["password", "api-key", "credentials", "owasp"],
+      "curated": true,
+      "installs": 5340,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx", "*.json"],
+      "patterns": [
+        "(password|passwd|secret|api_key|apiKey)\\s*[:=]\\s*['\"][^'\"]{8,}['\"]",
+        "\\bsk-[a-zA-Z0-9]{20,}\\b",
+        "\\bghp_[a-zA-Z0-9]{36,}\\b",
+        "\\bAKIA[A-Z0-9]{16}\\b",
+        "\\bxox[baprs]-[a-zA-Z0-9-]{10,}\\b"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow hardcoded-secret",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "\\.example",
+        "placeholder",
+        "CHANGE_ME",
+        "process\\.env",
+        "\\$\\{",
+        "test-secret",
+        "mock",
+        "fake",
+        "dummy"
+      ],
+      "suggestion": "Use environment variables or a secrets manager. Never commit real credentials."
+    },
+    {
+      "id": "sql-injection",
+      "description": "String interpolation in SQL enables injection attacks",
+      "severity": "block",
+      "category": "injection",
+      "tags": ["sql", "database", "owasp", "injection"],
+      "curated": true,
+      "installs": 4670,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "`SELECT\\s.*\\$\\{",
+        "`INSERT\\s.*\\$\\{",
+        "`UPDATE\\s.*\\$\\{",
+        "`DELETE\\s.*\\$\\{",
+        "`DROP\\s.*\\$\\{",
+        "\"SELECT\\s.*\"\\s*\\+",
+        "\"INSERT\\s.*\"\\s*\\+",
+        "\"UPDATE\\s.*\"\\s*\\+",
+        "\"DELETE\\s.*\"\\s*\\+"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow sql-injection",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "prepared",
+        "parameterized",
+        "\\$[0-9]",
+        "\\?"
+      ],
+      "suggestion": "Use parameterized queries: db.query('SELECT * FROM users WHERE id = $1', [userId])"
+    },
+    {
+      "id": "console-sensitive",
+      "description": "Logging sensitive data exposes secrets in log aggregators",
+      "severity": "warn",
+      "category": "secrets",
+      "tags": ["logging", "console", "sensitive", "pii"],
+      "curated": true,
+      "installs": 3120,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx"],
+      "patterns": [
+        "console\\.(log|info|debug|warn|error)\\([^)]*\\b(password|secret|token|apiKey|api_key|credential|private_key|privateKey)\\b"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow console-sensitive",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "redact",
+        "mask",
+        "\\*\\*\\*"
+      ],
+      "suggestion": "Redact sensitive fields before logging, or use a structured logger with auto-redaction."
+    },
+    {
+      "id": "no-any-type",
+      "description": "TypeScript 'any' defeats the type system and hides bugs",
+      "severity": "warn",
+      "category": "typescript",
+      "tags": ["typescript", "types", "strict", "lint"],
+      "curated": false,
+      "installs": 3890,
+      "file_patterns": ["*.ts", "*.tsx"],
+      "patterns": [
+        ":\\s*any\\b",
+        "as\\s+any\\b",
+        "<any>"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow no-any-type",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "eslint-disable",
+        "@ts-"
+      ],
+      "suggestion": "Use 'unknown' and narrow with type guards, or define a specific interface."
+    },
+    {
+      "id": "no-console-log",
+      "description": "console.log left in production code — use a proper logger",
+      "severity": "warn",
+      "category": "code-quality",
+      "tags": ["console", "logging", "cleanup", "production"],
+      "curated": false,
+      "installs": 3450,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx"],
+      "patterns": [
+        "console\\.log\\("
+      ],
+      "exclude_patterns": [
+        "codeguard:allow no-console-log",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "debug",
+        "scripts/"
+      ],
+      "suggestion": "Use a structured logger (pino, winston) that supports log levels and can be silenced in production."
+    },
+    {
+      "id": "jwt-no-verify",
+      "description": "JWT decoded without verification can be forged by attackers",
+      "severity": "block",
+      "category": "auth",
+      "tags": ["jwt", "auth", "token", "verification"],
+      "curated": false,
+      "installs": 2780,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "jwt\\.decode\\(",
+        "jwtDecode\\(",
+        "JSON\\.parse\\(atob\\("
+      ],
+      "exclude_patterns": [
+        "codeguard:allow jwt-no-verify",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "jwt\\.verify"
+      ],
+      "suggestion": "Use jwt.verify() with the signing secret, not jwt.decode() which skips signature validation."
+    },
+    {
+      "id": "open-redirect",
+      "description": "Redirecting to user-supplied URLs enables phishing attacks",
+      "severity": "block",
+      "category": "web-security",
+      "tags": ["redirect", "phishing", "owasp", "url"],
+      "curated": false,
+      "installs": 2340,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "res\\.redirect\\([^)]*req\\.(query|params|body)",
+        "location\\.href\\s*=\\s*.*req\\.",
+        "window\\.location\\s*=\\s*.*\\$\\{"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow open-redirect",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "allowlist",
+        "whitelist",
+        "startsWith"
+      ],
+      "suggestion": "Validate redirect URLs against an allowlist of trusted domains."
+    },
+    {
+      "id": "unsafe-regex",
+      "description": "Regex with catastrophic backtracking enables ReDoS attacks",
+      "severity": "warn",
+      "category": "web-security",
+      "tags": ["regex", "redos", "dos", "performance"],
+      "curated": false,
+      "installs": 1890,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "new RegExp\\([^)]*req\\.",
+        "new RegExp\\([^)]*\\$\\{",
+        "new RegExp\\(.*\\+.*\\)"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow unsafe-regex",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "escape",
+        "sanitize"
+      ],
+      "suggestion": "Never build regex from user input. If you must, escape special characters with a library like escape-string-regexp."
+    },
+    {
+      "id": "http-no-tls",
+      "description": "HTTP URLs transmit data in plaintext — use HTTPS",
+      "severity": "warn",
+      "category": "web-security",
+      "tags": ["http", "https", "tls", "encryption"],
+      "curated": false,
+      "installs": 2150,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.json"],
+      "patterns": [
+        "http://[^l][^o][^c]",
+        "fetch\\(['\"]http://",
+        "axios\\(['\"]http://"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow http-no-tls",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "localhost",
+        "127\\.0\\.0\\.1",
+        "0\\.0\\.0\\.0"
+      ],
+      "suggestion": "Use https:// for all external URLs. HTTP is only acceptable for localhost development."
+    },
+    {
+      "id": "dangerouslySetInnerHTML",
+      "description": "React dangerouslySetInnerHTML enables XSS if input is unsanitized",
+      "severity": "block",
+      "category": "injection",
+      "tags": ["react", "xss", "html", "frontend"],
+      "curated": false,
+      "installs": 2560,
+      "file_patterns": ["*.tsx", "*.jsx"],
+      "patterns": [
+        "dangerouslySetInnerHTML"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow dangerouslySetInnerHTML",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "DOMPurify",
+        "sanitize"
+      ],
+      "suggestion": "Use DOMPurify.sanitize() before passing HTML, or restructure to avoid raw HTML injection."
+    },
+    {
+      "id": "shell-injection",
+      "description": "Passing user input to shell commands enables command injection",
+      "severity": "block",
+      "category": "injection",
+      "tags": ["shell", "exec", "command-injection", "owasp"],
+      "curated": false,
+      "installs": 2980,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "exec\\([^)]*\\$\\{",
+        "exec\\([^)]*req\\.",
+        "execSync\\([^)]*\\$\\{",
+        "execSync\\([^)]*req\\.",
+        "spawn\\([^,]*\\$\\{"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow shell-injection",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "execFile",
+        "escapeshell"
+      ],
+      "suggestion": "Use execFile() or spawn() with argument arrays instead of exec() with string interpolation."
+    },
+    {
+      "id": "no-prototype-pollution",
+      "description": "Object property assignment from user input enables prototype pollution",
+      "severity": "block",
+      "category": "injection",
+      "tags": ["prototype", "pollution", "object", "owasp"],
+      "curated": false,
+      "installs": 1650,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "\\[req\\.(body|query|params)",
+        "Object\\.assign\\([^,]*,\\s*req\\.",
+        "\\.\\.\\.req\\.(body|query)"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow no-prototype-pollution",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "hasOwnProperty",
+        "Object\\.create\\(null\\)"
+      ],
+      "suggestion": "Validate and allowlist properties before assigning. Use Object.create(null) for lookup maps."
+    },
+    {
+      "id": "unhandled-promise",
+      "description": "Unhandled promise rejection crashes Node.js in production",
+      "severity": "warn",
+      "category": "code-quality",
+      "tags": ["async", "promise", "error-handling", "node"],
+      "curated": false,
+      "installs": 2870,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "\\.then\\([^)]*\\)\\s*$",
+        "\\.then\\([^)]*\\)\\s*;\\s*$"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow unhandled-promise",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "\\.catch",
+        "await",
+        "void"
+      ],
+      "suggestion": "Add .catch() or use await with try/catch. Prefix fire-and-forget promises with void."
+    },
+    {
+      "id": "insecure-cookie",
+      "description": "Cookies without Secure/HttpOnly/SameSite flags are vulnerable to theft",
+      "severity": "warn",
+      "category": "web-security",
+      "tags": ["cookie", "session", "auth", "owasp"],
+      "curated": false,
+      "installs": 2210,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "res\\.cookie\\([^)]*\\)(?!.*secure)",
+        "Set-Cookie(?!.*[Ss]ecure)",
+        "cookie.*httpOnly:\\s*false"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow insecure-cookie",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "secure:",
+        "httpOnly:",
+        "sameSite:"
+      ],
+      "suggestion": "Set cookies with: { secure: true, httpOnly: true, sameSite: 'strict' }"
+    }
+  ]
+}

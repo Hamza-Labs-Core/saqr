@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# agentctx-codeguard — PreToolUse hook that blocks security anti-patterns.
+#
+# Reads Edit/Write JSON payload from stdin, checks content against codeguard
+# rules, and exits 2 (BLOCK) on severity=block matches, 0 otherwise.
+#
+# Rule layers:
+#   ~/.agentctx/codeguard-rules.json   (global defaults)
+#   $PROJECT_DIR/.claude/codeguard-rules.json  (project overrides)
+#
+# Usage: Registered as a Claude Code PreToolUse hook in settings.json.
+set -uo pipefail
+
+AGENTCTX_DIR="${AGENTCTX_HOME:-$HOME/.agentctx}"
+GLOBAL_RULES="$AGENTCTX_DIR/codeguard-rules.json"
+
+# Read the full payload from stdin once
+payload=$(cat)
+
+# Extract file_path and content from the tool input
+# Edit tool sends: tool_input.file_path + tool_input.new_string
+# Write tool sends: tool_input.file_path + tool_input.content
+file_path=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
+content=$(printf '%s' "$payload" | jq -r '.tool_input.content // .tool_input.new_string // ""' 2>/dev/null)
+
+# If no content or file_path, nothing to check
+if [ -z "$content" ] || [ -z "$file_path" ]; then
+  exit 0
+fi
+
+# --- Find project directory (walk up from file_path to find .git) ---
+find_project_dir() {
+  local dir="$1"
+  while [ "$dir" != "/" ] && [ -n "$dir" ]; do
+    if [ -d "$dir/.git" ]; then
+      printf '%s' "$dir"
+      return 0
+    fi
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
+PROJECT_DIR=""
+if [ -n "$file_path" ]; then
+  PROJECT_DIR=$(find_project_dir "$(dirname "$file_path")" 2>/dev/null) || true
+fi
+
+PROJECT_RULES=""
+if [ -n "$PROJECT_DIR" ] && [ -f "$PROJECT_DIR/.claude/codeguard-rules.json" ]; then
+  PROJECT_RULES="$PROJECT_DIR/.claude/codeguard-rules.json"
+fi
+
+# --- Load and merge rules ---
+# If no global rules file exists, allow everything
+if [ ! -f "$GLOBAL_RULES" ]; then
+  exit 0
+fi
+
+# Merge rules: project rules override global rules by id.
+# jq script: index global rules by id, overlay project rules, output array.
+if [ -n "$PROJECT_RULES" ]; then
+  merged_rules=$(jq -s '
+    (.[0].rules // []) as $global |
+    (.[1].rules // []) as $project |
+    ($global | map({(.id): .}) | add // {}) as $gmap |
+    ($project | map({(.id): .}) | add // {}) as $pmap |
+    ($gmap + $pmap) | to_entries | map(.value)
+  ' "$GLOBAL_RULES" "$PROJECT_RULES" 2>/dev/null)
+else
+  merged_rules=$(jq '.rules // []' "$GLOBAL_RULES" 2>/dev/null)
+fi
+
+if [ -z "$merged_rules" ] || [ "$merged_rules" = "null" ]; then
+  exit 0
+fi
+
+# --- Extract filename for glob matching ---
+filename=$(basename "$file_path")
+
+# --- Check each rule ---
+violations=""
+violation_count=0
+
+# Get the number of rules
+rule_count=$(printf '%s' "$merged_rules" | jq 'length' 2>/dev/null)
+if [ -z "$rule_count" ] || [ "$rule_count" = "0" ]; then
+  exit 0
+fi
+
+i=0
+while [ "$i" -lt "$rule_count" ]; do
+  # Extract rule fields
+  rule_json=$(printf '%s' "$merged_rules" | jq ".[$i]" 2>/dev/null)
+  enabled=$(printf '%s' "$rule_json" | jq -r 'if .enabled == false then "false" else "true" end' 2>/dev/null)
+
+  if [ "$enabled" = "false" ]; then
+    i=$((i + 1))
+    continue
+  fi
+
+  rule_id=$(printf '%s' "$rule_json" | jq -r '.id' 2>/dev/null)
+  severity=$(printf '%s' "$rule_json" | jq -r '.severity // "warn"' 2>/dev/null)
+  description=$(printf '%s' "$rule_json" | jq -r '.description // ""' 2>/dev/null)
+  suggestion=$(printf '%s' "$rule_json" | jq -r '.suggestion // ""' 2>/dev/null)
+
+  # Check file pattern match (glob-like)
+  file_match=false
+  file_patterns=$(printf '%s' "$rule_json" | jq -r '.file_patterns // [] | .[]' 2>/dev/null)
+  if [ -z "$file_patterns" ]; then
+    # No file patterns = match all files
+    file_match=true
+  else
+    while IFS= read -r glob; do
+      # Convert glob to regex: *.ts -> .*\.ts$
+      regex=$(printf '%s' "$glob" | sed 's/\./\\./g; s/\*/.*/' )
+      if printf '%s' "$filename" | grep -qE "$regex"; then
+        file_match=true
+        break
+      fi
+    done <<< "$file_patterns"
+  fi
+
+  if [ "$file_match" = "false" ]; then
+    i=$((i + 1))
+    continue
+  fi
+
+  # Check exclude patterns against the content AND file_path
+  excluded=false
+  exclude_patterns=$(printf '%s' "$rule_json" | jq -r '.exclude_patterns // [] | .[]' 2>/dev/null)
+  if [ -n "$exclude_patterns" ]; then
+    while IFS= read -r excl; do
+      # Check file path excludes (test files, etc.)
+      if printf '%s' "$file_path" | grep -qE "$excl" 2>/dev/null; then
+        excluded=true
+        break
+      fi
+      # Check content excludes (inline suppression, etc.)
+      if printf '%s' "$content" | grep -qE "$excl" 2>/dev/null; then
+        excluded=true
+        break
+      fi
+    done <<< "$exclude_patterns"
+  fi
+
+  if [ "$excluded" = "true" ]; then
+    i=$((i + 1))
+    continue
+  fi
+
+  # Check patterns against content
+  patterns=$(printf '%s' "$rule_json" | jq -r '.patterns // [] | .[]' 2>/dev/null)
+  matched_pattern=""
+  if [ -n "$patterns" ]; then
+    while IFS= read -r pat; do
+      if printf '%s' "$content" | grep -qE "$pat" 2>/dev/null; then
+        matched_pattern="$pat"
+        break
+      fi
+    done <<< "$patterns"
+  fi
+
+  if [ -n "$matched_pattern" ]; then
+    if [ "$severity" = "block" ]; then
+      violation_count=$((violation_count + 1))
+      violations="${violations}
+[BLOCKED] ${rule_id}: ${description}"
+      if [ -n "$suggestion" ]; then
+        violations="${violations}
+  Fix: ${suggestion}"
+      fi
+    fi
+    # warn-severity: log but don't block
+  fi
+
+  i=$((i + 1))
+done
+
+# --- Report violations ---
+if [ "$violation_count" -gt 0 ]; then
+  {
+    echo "Codeguard: ${violation_count} security violation(s) detected in ${file_path}:"
+    echo "$violations"
+    echo ""
+    echo "To suppress a rule for this line, add: // codeguard:allow <rule-id>"
+  } >&2
+
+  # Async notify daemon (fire-and-forget)
+  if [ -S "$AGENTCTX_DIR/daemon.sock" ]; then
+    event_payload=$(jq -n \
+      --arg file "$file_path" \
+      --arg violations "$violations" \
+      --argjson count "$violation_count" \
+      '{file_path: $file, violations: $violations, count: $count}' 2>/dev/null)
+    printf '%s' "$event_payload" | curl -s --max-time 2 \
+      --unix-socket "$AGENTCTX_DIR/daemon.sock" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "X-Event-Type: CodeguardViolation" \
+      -d @- \
+      "http://localhost/api/events/intake" \
+      >/dev/null 2>/dev/null &
+  fi
+
+  exit 2
+fi
+
+exit 0

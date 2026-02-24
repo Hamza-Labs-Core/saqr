@@ -1,0 +1,28 @@
+{
+  "name": "@saqr/gc-core",
+  "version": "0.1.0",
+  "description": "GlobalContext event store for AI coding agents — bash + Node.js ESM, zero npm dependencies",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "gc-dashboard": "src/bin/gc-dashboard",
+    "gc-doctor": "src/bin/gc-doctor",
+    "gc-hook": "src/bin/gc-hook",
+    "gc-init": "src/bin/gc-init",
+    "gc-install": "src/bin/gc-install",
+    "gc-query": "src/bin/gc-query",
+    "gc-uninstall": "src/bin/gc-uninstall",
+    "gc-project": "src/bin/project"
+  },
+  "files": [
+    "src/"
+  ],
+  "scripts": {
+    "test": "bash tests/run-all.sh",
+    "test:unit": "bash tests/run-all.sh",
+    "test:projections": "node tests/projections/run-all.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

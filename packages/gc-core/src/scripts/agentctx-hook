@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# AgentContext hook wrapper
+# Usage: agentctx-hook <agent-provider> <UnifiedEventType>
+# Reads JSON from stdin, tags with agent provider, sends to daemon intake.
+# ALWAYS exits 0. NEVER produces stdout. NEVER produces visible stderr.
+set -uo pipefail
+
+AGENT_PROVIDER="${1:?Missing agent provider}"
+EVENT_TYPE="${2:?Missing event type}"
+AGENTCTX_DIR="${AGENTCTX_HOME:-$HOME/.agentctx}"
+GC_BASE="${CLAUDE_CONTEXT_PATH:-$HOME/.claude-context}"
+
+# Read the full payload from stdin once
+payload=$(cat)
+
+# Derive the agent native event from the mapping or use the event type itself.
+# For Claude Code, the native event is the settings.json hook name,
+# which is the inverse of the mapping table. We pass it via env or derive it.
+AGENT_NATIVE_EVENT="${AGENT_NATIVE_EVENT:-$EVENT_TYPE}"
+
+# Try daemon intake first (HTTP POST to Unix socket)
+if [ -S "$AGENTCTX_DIR/daemon.sock" ]; then
+  printf '%s' "$payload" | curl -s --max-time 4 \
+    --unix-socket "$AGENTCTX_DIR/daemon.sock" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -H "X-Agent-Provider: $AGENT_PROVIDER" \
+    -H "X-Event-Type: $EVENT_TYPE" \
+    -H "X-Agent-Native-Event: $AGENT_NATIVE_EVENT" \
+    -d @- \
+    "http://localhost/api/events/intake" \
+    >/dev/null 2>/dev/null && exit 0
+fi
+
+# Fallback: write directly to event store (standalone mode)
+if [ -x "$AGENTCTX_DIR/bin/capture-event" ]; then
+  printf '%s' "$payload" | "$AGENTCTX_DIR/bin/capture-event" "$EVENT_TYPE" \
+    --agent-provider "$AGENT_PROVIDER" \
+    --agent-native-event "$AGENT_NATIVE_EVENT" \
+    >/dev/null 2>/dev/null || true
+elif [ -x "$GC_BASE/bin/capture-event" ]; then
+  # Legacy GC fallback
+  printf '%s' "$payload" | "$GC_BASE/bin/capture-event" "$EVENT_TYPE" \
+    --agent-provider "$AGENT_PROVIDER" \
+    --agent-native-event "$AGENT_NATIVE_EVENT" \
+    >/dev/null 2>/dev/null || true
+fi
+
+exit 0

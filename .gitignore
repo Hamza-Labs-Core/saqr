@@ -1,10 +1,46 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Build outputs
 dist/
+*.tsbuildinfo
+.turbo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
 .env
 .env.*
 !.env.example
+.env.local
+.env.*.local
+
+# Test
+coverage/
+.nyc_output/
+
+# Temporary
 *.log
-.DS_Store
-.turbo
-target/
 *.pid
+
+# Cloudflare
+.wrangler/
+.dev.vars
+
+# Mobile
+packages/mobile/.expo/
+packages/mobile/android/
+packages/mobile/ios/
+
+# Desktop / Rust
+target/
+packages/desktop/src-tauri/target/

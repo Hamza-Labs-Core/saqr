@@ -1,0 +1,15 @@
+{
+  "event_id": "e8",
+  "event_type": "ToolCallCompleted",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-001",
+  "sequence": 8,
+  "timestamp": "2026-01-01T00:00:25.000Z",
+  "data": {
+    "tool_name": "Bash",
+    "tool_response": "All 12 tests passed",
+    "exit_code": 0,
+    "stdout": "All 12 tests passed",
+    "tool_use_id": "tu_003"
+  }
+}

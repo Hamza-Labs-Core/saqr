@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gc-uninstall -- Uninstall GlobalContext
+# Default: soft uninstall (remove hooks + bin/ + lib/, preserve events/ and config)
+# --purge: full removal (delete entire store)
+#
+# Usage: gc-uninstall [--purge] [--force] [--dry-run]
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Resolve GC_BASE -- try sourcing paths.sh, fall back to env var or default
+if [ -f "$SCRIPT_DIR/../lib/paths.sh" ]; then
+  source "$SCRIPT_DIR/../lib/paths.sh"
+  GC_BASE="$GC_ROOT"
+elif [ -f "$SCRIPT_DIR/../../src/lib/paths.sh" ]; then
+  source "$SCRIPT_DIR/../../src/lib/paths.sh"
+  GC_BASE="$GC_ROOT"
+else
+  GC_BASE="${CLAUDE_CONTEXT_PATH:-$HOME/.claude-context}"
+fi
+
+# Parse flags
+PURGE=false
+FORCE=false
+DRY_RUN=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --purge)     PURGE=true ;;
+    --force)     FORCE=true ;;
+    --dry-run)   DRY_RUN=true ;;
+    --keep-data) ;; # accepted for compatibility (soft uninstall is already the default)
+    -h|--help)
+      echo "Usage: gc-uninstall [--purge] [--force] [--dry-run]"
+      echo ""
+      echo "Default: soft uninstall (remove hooks, bin/, lib/; preserve events and config)"
+      echo ""
+      echo "Flags:"
+      echo "  --purge    Delete entire store including event data"
+      echo "  --force    Skip confirmation prompt (only relevant with --purge)"
+      echo "  --dry-run  Print what would be removed without changes"
+      exit 0
+      ;;
+    *)
+      echo "error: unknown flag: $1" >&2
+      echo "Usage: gc-uninstall [--purge] [--force] [--dry-run]" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+echo "GlobalContext Uninstall"
+echo "Store location: $GC_BASE"
+echo ""
+
+# Compute store stats
+store_exists=false
+file_count=0
+store_size="0"
+if [ -d "$GC_BASE" ]; then
+  store_exists=true
+  file_count=$(find "$GC_BASE" -type f 2>/dev/null | wc -l)
+  store_size=$(du -sh "$GC_BASE" 2>/dev/null | cut -f1 || echo "unknown")
+fi
+
+# Settings file
+CLAUDE_SETTINGS_FILE="${HOME}/.claude/settings.json"
+hooks_present=false
+if [ -f "$CLAUDE_SETTINGS_FILE" ]; then
+  gc_hook_count=$(jq '[.hooks // {} | to_entries[] | .value[] | select(
+    if .hooks then ([.hooks[] | select((.command // "") | contains("gc-hook"))] | length) > 0
+    else ((.command // "") | contains("gc-hook"))
+    end
+  )] | length' "$CLAUDE_SETTINGS_FILE" 2>/dev/null || echo 0)
+  if [ "$gc_hook_count" -gt 0 ]; then
+    hooks_present=true
+  fi
+fi
+
+# Dry run
+if [ "$DRY_RUN" = true ]; then
+  echo "Dry run -- no changes will be made."
+  echo ""
+  if [ "$hooks_present" = true ]; then
+    echo "Would remove: $gc_hook_count GlobalContext hooks from $CLAUDE_SETTINGS_FILE"
+  else
+    echo "No GlobalContext hooks found in settings.json"
+  fi
+  if [ "$PURGE" = true ] && [ "$store_exists" = true ]; then
+    echo "Would delete: $GC_BASE ($file_count files, $store_size)"
+  elif [ "$store_exists" = true ]; then
+    echo "Would remove: bin/ and lib/ from $GC_BASE"
+    echo "Would preserve: events/ and config.json"
+  else
+    echo "Store not found at $GC_BASE"
+  fi
+  exit 0
+fi
+
+# Nothing to uninstall -- early exit
+if [ "$store_exists" = false ] && [ "$hooks_present" = false ]; then
+  echo "GlobalContext is not installed."
+  exit 0
+fi
+
+# Confirmation prompt for --purge (unless --force)
+if [ "$PURGE" = true ] && [ "$FORCE" != true ]; then
+  echo "This will permanently delete all GlobalContext data."
+  if [ "$store_exists" = true ]; then
+    echo "Store: $file_count files, $store_size"
+  fi
+  echo ""
+  printf "Type 'yes' to confirm: "
+  read -r confirmation
+  if [ "$confirmation" != "yes" ]; then
+    echo "Aborted."
+    exit 1
+  fi
+  echo ""
+fi
+
+# Step 1 -- Remove hooks from settings.json
+if [ "$hooks_present" = true ]; then
+  echo "Removing hooks from settings.json..."
+  # Try using gc-install-hooks uninstall if available
+  if [ -x "$GC_BASE/bin/gc-install-hooks" ]; then
+    "$GC_BASE/bin/gc-install-hooks" uninstall 2>/dev/null || {
+      echo "warning: gc-install-hooks uninstall had issues, trying direct removal" >&2
+      # Direct removal fallback
+      if command -v jq >/dev/null 2>&1; then
+        local_cleaned=$(jq '
+          if .hooks then
+            .hooks |= with_entries(
+              .value |= [.[] | select(
+                if .hooks then
+                  ([.hooks[] | select((.command // "") | contains("gc-hook"))] | length) == 0
+                else
+                  ((.command // "") | contains("gc-hook")) | not
+                end
+              )]
+            ) |
+            .hooks |= with_entries(select(.value | length > 0)) |
+            if (.hooks | length) == 0 then del(.hooks) else . end
+          else . end
+        ' "$CLAUDE_SETTINGS_FILE")
+        echo "$local_cleaned" | jq --indent 2 '.' > "$CLAUDE_SETTINGS_FILE"
+        echo "Hooks removed (direct)."
+      else
+        echo "warning: jq not available, cannot remove hooks" >&2
+      fi
+    }
+  elif command -v jq >/dev/null 2>&1; then
+    # No gc-install-hooks available, remove directly
+    local_cleaned=$(jq '
+      if .hooks then
+        .hooks |= with_entries(
+          .value |= [.[] | select(
+                if .hooks then
+                  ([.hooks[] | select((.command // "") | contains("gc-hook"))] | length) == 0
+                else
+                  ((.command // "") | contains("gc-hook")) | not
+                end
+              )]
+        ) |
+        .hooks |= with_entries(select(.value | length > 0)) |
+        if (.hooks | length) == 0 then del(.hooks) else . end
+      else . end
+    ' "$CLAUDE_SETTINGS_FILE")
+    echo "$local_cleaned" | jq --indent 2 '.' > "$CLAUDE_SETTINGS_FILE"
+    echo "Hooks removed from settings.json."
+  else
+    echo "warning: cannot remove hooks (jq not available, gc-install-hooks not found)" >&2
+  fi
+else
+  echo "No GlobalContext hooks found in settings.json."
+fi
+
+# Step 2 -- Remove recall skill
+_gc_skill_dir="$HOME/.claude/skills/recall"
+if [ -d "$_gc_skill_dir" ]; then
+  rm -rf "$_gc_skill_dir"
+  echo "Removed recall skill from $_gc_skill_dir"
+else
+  echo "No recall skill found."
+fi
+
+# Step 3 -- Handle store
+if [ "$PURGE" = true ]; then
+  # Full removal
+  if [ "$store_exists" = true ]; then
+    echo "Deleting store: $GC_BASE ($file_count files, $store_size)..."
+    rm -rf "$GC_BASE"
+    echo "Data deleted."
+  else
+    echo "Store not found at $GC_BASE."
+  fi
+else
+  # Soft uninstall -- remove bin/ and lib/, preserve events/ and config
+  if [ "$store_exists" = true ]; then
+    if [ -d "$GC_BASE/bin" ]; then
+      rm -rf "$GC_BASE/bin"
+      echo "Removed: $GC_BASE/bin/"
+    fi
+    if [ -d "$GC_BASE/lib" ]; then
+      rm -rf "$GC_BASE/lib"
+      echo "Removed: $GC_BASE/lib/"
+    fi
+    if [ -d "$GC_BASE/projections" ]; then
+      rm -rf "$GC_BASE/projections"
+      echo "Removed: $GC_BASE/projections/"
+    fi
+    if [ -f "$GC_BASE/VERSION" ]; then
+      rm -f "$GC_BASE/VERSION"
+      echo "Removed: $GC_BASE/VERSION"
+    fi
+    echo "Data preserved: events/ and config.json"
+  fi
+fi
+
+# Summary
+echo ""
+echo "Uninstall complete."
+if [ "$hooks_present" = true ]; then
+  echo "  Hooks removed from $CLAUDE_SETTINGS_FILE"
+fi
+if [ "$PURGE" = true ] && [ "$store_exists" = true ]; then
+  echo "  Store deleted: $GC_BASE"
+else
+  echo "  Store location: $GC_BASE (events preserved)"
+fi
+
+exit 0

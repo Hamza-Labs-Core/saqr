@@ -1,0 +1,11 @@
+{
+  "event_id": "g2",
+  "event_type": "UserPromptReceived",
+  "project_id": "test-proj-abc123",
+  "session_id": "test-session-globgrep",
+  "sequence": 2,
+  "timestamp": "2026-01-01T00:00:01.000Z",
+  "data": {
+    "prompt": "Find JS files and search for auth"
+  }
+}
