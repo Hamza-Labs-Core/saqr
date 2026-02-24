@@ -13,6 +13,7 @@ export interface Env {
   USER_SYNC: DurableObjectNamespace;
   SYNC_BUCKET: R2Bucket;
   AUTH_KV: KVNamespace;
+  REGISTRY_KV: KVNamespace;
   JWT_SECRET: string;
   JWT_ISSUER: string;
   JWT_AUDIENCE: string;
@@ -54,6 +55,7 @@ export interface JWTPayload {
   sub: string;
   email: string;
   tier: Tier;
+  role?: 'user' | 'admin';
   iat: number;
   exp: number;
   iss: string;
@@ -248,6 +250,7 @@ export interface KVUserRecord {
   email: string;
   tier: Tier;
   createdAt: string;
+  role?: 'user' | 'admin';
 }
 
 // ---------------------------------------------------------------------------

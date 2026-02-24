@@ -1,0 +1,20 @@
+name = "saqr-admin"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[placement]
+mode = "smart"
+
+[[kv_namespaces]]
+binding = "AUTH_KV"
+id = "TBD"
+
+[[kv_namespaces]]
+binding = "REGISTRY_KV"
+id = "TBD"
+
+[vars]
+JWT_ISSUER = "saqr"
+JWT_AUDIENCE = "saqr-admin"
+ALLOWED_ORIGINS = "https://admin.saqr.dev"

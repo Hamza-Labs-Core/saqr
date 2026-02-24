@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# agentctx-codeguard-install — Install the codeguard hook + default rules.
+#
+# - Copies agentctx-codeguard to ~/.agentctx/bin/
+# - Copies default-rules.json to ~/.agentctx/codeguard-rules.json (if not exists)
+# - Updates ~/.claude/settings.json to register the PreToolUse codeguard hook
+# - Replaces old inline jq/grep CI-bypass check (now a codeguard rule)
+set -euo pipefail
+
+AGENTCTX_DIR="${AGENTCTX_HOME:-$HOME/.agentctx}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CODEGUARD_DIR="$(cd "$SCRIPT_DIR/../codeguard" && pwd)"
+CLAUDE_SETTINGS="${CLAUDE_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+
+echo "=== Installing Codeguard ==="
+
+# 1. Ensure directories exist
+mkdir -p "$AGENTCTX_DIR/bin"
+mkdir -p "$(dirname "$CLAUDE_SETTINGS")"
+
+# 2. Copy hook script
+cp "$SCRIPT_DIR/agentctx-codeguard" "$AGENTCTX_DIR/bin/agentctx-codeguard"
+chmod +x "$AGENTCTX_DIR/bin/agentctx-codeguard"
+echo "  Installed: $AGENTCTX_DIR/bin/agentctx-codeguard"
+
+# 3. Copy default rules (preserve existing)
+if [ -f "$AGENTCTX_DIR/codeguard-rules.json" ]; then
+  echo "  Skipped:   $AGENTCTX_DIR/codeguard-rules.json (already exists)"
+else
+  cp "$CODEGUARD_DIR/default-rules.json" "$AGENTCTX_DIR/codeguard-rules.json"
+  echo "  Installed: $AGENTCTX_DIR/codeguard-rules.json"
+fi
+
+# 4. Update ~/.claude/settings.json
+# Read existing settings or create empty
+if [ -f "$CLAUDE_SETTINGS" ]; then
+  settings=$(cat "$CLAUDE_SETTINGS")
+else
+  settings='{}'
+fi
+
+# Build the codeguard hook entry
+codeguard_hook=$(cat <<'HOOKJSON'
+{
+  "matcher": "Edit|Write",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "~/.agentctx/bin/agentctx-codeguard",
+      "timeout": 10000
+    }
+  ]
+}
+HOOKJSON
+)
+
+# Pattern to match old inline check that codeguard replaces
+OLD_PATTERN="jq.*grep"
+
+# Remove old inline check and add codeguard
+updated=$(printf '%s' "$settings" | jq --argjson hook "$codeguard_hook" --arg old_pat "$OLD_PATTERN" '
+  # Ensure hooks.PreToolUse exists as an array
+  .hooks.PreToolUse = (.hooks.PreToolUse // []) |
+
+  # Remove old inline jq/grep security check (the one codeguard replaces)
+  .hooks.PreToolUse = [
+    .hooks.PreToolUse[] |
+    select(
+      (.hooks // []) | all(
+        (.command // "") | test($old_pat) | not
+      )
+    )
+  ] |
+
+  # Remove any existing codeguard entry
+  .hooks.PreToolUse = [
+    .hooks.PreToolUse[] |
+    select(
+      (.hooks // []) | all(
+        (.command // "") | test("agentctx-codeguard") | not
+      )
+    )
+  ] |
+
+  # Prepend codeguard hook (runs first, before other PreToolUse hooks)
+  .hooks.PreToolUse = [$hook] + .hooks.PreToolUse
+' 2>/dev/null)
+
+if [ -n "$updated" ]; then
+  printf '%s\n' "$updated" > "$CLAUDE_SETTINGS"
+  echo "  Updated:   $CLAUDE_SETTINGS (codeguard PreToolUse hook registered)"
+else
+  echo "  WARNING:   Failed to update $CLAUDE_SETTINGS — update manually"
+fi
+
+echo ""
+echo "Codeguard installed. 9 default rules active."
+echo "Use '/codeguard list' to see rules, '/codeguard add' to add custom rules."

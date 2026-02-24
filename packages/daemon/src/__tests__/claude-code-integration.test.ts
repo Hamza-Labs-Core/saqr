@@ -52,13 +52,30 @@ describe("ClaudeCodeIntegration", () => {
       for (const hookDef of CLAUDE_CODE_HOOKS) {
         const entries = hooks[hookDef.nativeEvent];
         expect(entries).toBeDefined();
-        expect(entries).toHaveLength(1);
-        expect(entries[0].command).toContain("agentctx-hook");
-        expect(entries[0].command).toContain("claude-code");
-        expect(entries[0].command).toContain(hookDef.unifiedEvent);
-        expect(entries[0].type).toBe("command");
-        expect(entries[0].async).toBe(hookDef.async);
-        expect(entries[0].timeout).toBe(hookDef.timeout);
+
+        if (hookDef.nativeEvent === "PreToolUse") {
+          // PreToolUse has codeguard (Edit|Write) + agentctx-hook (.*)
+          expect(entries.length).toBeGreaterThanOrEqual(2);
+          const agentctxEntry = entries.find((e: Record<string, unknown>) =>
+            typeof e.command === "string" && e.command.includes("agentctx-hook"),
+          );
+          expect(agentctxEntry).toBeDefined();
+          expect(agentctxEntry.command).toContain("claude-code");
+          expect(agentctxEntry.command).toContain(hookDef.unifiedEvent);
+          // Also verify codeguard entry
+          const codeguardEntry = entries.find((e: Record<string, unknown>) =>
+            e.matcher === "Edit|Write",
+          );
+          expect(codeguardEntry).toBeDefined();
+        } else {
+          expect(entries).toHaveLength(1);
+          expect(entries[0].command).toContain("agentctx-hook");
+          expect(entries[0].command).toContain("claude-code");
+          expect(entries[0].command).toContain(hookDef.unifiedEvent);
+          expect(entries[0].type).toBe("command");
+          expect(entries[0].async).toBe(hookDef.async);
+          expect(entries[0].timeout).toBe(hookDef.timeout);
+        }
       }
     });
 
@@ -154,9 +171,17 @@ describe("ClaudeCodeIntegration", () => {
       for (const hookDef of CLAUDE_CODE_HOOKS) {
         const entries1 = settings1.hooks[hookDef.nativeEvent];
         const entries2 = settings2.hooks[hookDef.nativeEvent];
-        expect(entries1).toHaveLength(1);
-        expect(entries2).toHaveLength(1);
-        expect(entries1[0].command).toEqual(entries2[0].command);
+        expect(entries1).toHaveLength(entries2.length);
+        // Find agentctx-hook entries in both and compare
+        const hook1 = entries1.find((e: Record<string, unknown>) =>
+          typeof e.command === "string" && e.command.includes("agentctx-hook"),
+        );
+        const hook2 = entries2.find((e: Record<string, unknown>) =>
+          typeof e.command === "string" && e.command.includes("agentctx-hook"),
+        );
+        if (hook1 && hook2) {
+          expect(hook1.command).toEqual(hook2.command);
+        }
       }
     });
 
@@ -194,8 +219,11 @@ describe("ClaudeCodeIntegration", () => {
       expect(settings.hooks.UserPromptSubmit[0].async).toBe(false);
       expect(settings.hooks.PreCompact[0].async).toBe(false);
 
-      // Async hooks: all others
-      expect(settings.hooks.PreToolUse[0].async).toBe(true);
+      // Async hooks: all others (find agentctx-hook entries, not codeguard matcher groups)
+      const preToolUseAgentCtx = settings.hooks.PreToolUse.find(
+        (e: Record<string, unknown>) => typeof e.command === "string" && e.command.includes("agentctx-hook"),
+      );
+      expect(preToolUseAgentCtx.async).toBe(true);
       expect(settings.hooks.PostToolUse[0].async).toBe(true);
       expect(settings.hooks.PostToolUseFailure[0].async).toBe(true);
       expect(settings.hooks.SubagentStart[0].async).toBe(true);
@@ -209,8 +237,11 @@ describe("ClaudeCodeIntegration", () => {
       const content = await readFile(settingsPath, "utf-8");
       const settings = JSON.parse(content);
 
-      // Tool-related hooks have ".*" matcher
-      expect(settings.hooks.PreToolUse[0].matcher).toBe(".*");
+      // Tool-related hooks have ".*" matcher (find agentctx-hook entry, not codeguard)
+      const preToolUseHook = settings.hooks.PreToolUse.find(
+        (e: Record<string, unknown>) => typeof e.command === "string" && e.command.includes("agentctx-hook"),
+      );
+      expect(preToolUseHook.matcher).toBe(".*");
       expect(settings.hooks.PostToolUse[0].matcher).toBe(".*");
       expect(settings.hooks.PostToolUseFailure[0].matcher).toBe(".*");
       expect(settings.hooks.SubagentStart[0].matcher).toBe(".*");
@@ -230,7 +261,11 @@ describe("ClaudeCodeIntegration", () => {
       const settings = JSON.parse(content);
 
       for (const hookDef of CLAUDE_CODE_HOOKS) {
-        expect(settings.hooks[hookDef.nativeEvent][0].timeout).toBe(5000);
+        // Find the agentctx-hook entry (not codeguard matcher groups)
+        const entry = settings.hooks[hookDef.nativeEvent].find(
+          (e: Record<string, unknown>) => typeof e.command === "string" && e.command.includes("agentctx-hook"),
+        );
+        expect(entry?.timeout).toBe(5000);
       }
     });
   });

@@ -165,6 +165,7 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     email,
     tier: 'free',
     createdAt: now,
+    role: 'user',
   };
 
   await env.AUTH_KV.put(`user:${email}`, JSON.stringify(userRecord));
@@ -176,6 +177,7 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
       sub: userId,
       email,
       tier: 'free' as Tier,
+      role: 'user',
       iss: env.JWT_ISSUER || 'saqr',
       aud: env.JWT_AUDIENCE || 'saqr-sync',
     },
@@ -250,6 +252,7 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
       sub: userRecord.userId,
       email: userRecord.email,
       tier: userRecord.tier,
+      role: userRecord.role || 'user',
       iss: env.JWT_ISSUER || 'saqr',
       aud: env.JWT_AUDIENCE || 'saqr-sync',
     },

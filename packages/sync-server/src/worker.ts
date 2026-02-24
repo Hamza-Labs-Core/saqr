@@ -18,6 +18,8 @@ import type { Env, AuthContext } from './types.js';
 import { verifyToken, JWTError } from './auth/jwt.js';
 import { handleRegister, handleLogin } from './auth/handlers.js';
 import { checkRateLimit } from './middleware/rate-limiter.js';
+import { handleGetCurated, handleGetPopular } from './codeguard/public-handlers.js';
+import { handleTelemetryPush } from './codeguard/telemetry-handlers.js';
 import {
   jsonResponse,
   errorResponse,
@@ -36,7 +38,15 @@ function requiresAuth(pathname: string): boolean {
   return (
     pathname.startsWith('/api/sync/') ||
     pathname.startsWith('/api/account') ||
-    pathname.startsWith('/api/machines')
+    pathname.startsWith('/api/machines') ||
+    pathname === '/api/codeguard/telemetry'
+  );
+}
+
+function isPublicCodeguardRoute(pathname: string): boolean {
+  return (
+    pathname === '/api/codeguard/curated' ||
+    pathname === '/api/codeguard/popular'
   );
 }
 
@@ -161,13 +171,22 @@ export default {
       return respond(await handleLogin(request, env));
     }
 
+    // --- Public codeguard endpoints (no auth) ---
+    if (url.pathname === '/api/codeguard/curated' && request.method === 'GET') {
+      return respond(await handleGetCurated(env));
+    }
+
+    if (url.pathname === '/api/codeguard/popular' && request.method === 'GET') {
+      return respond(await handleGetPopular(env, url));
+    }
+
     // --- Block internal endpoints from external access ---
     if (url.pathname.startsWith('/_internal/')) {
       return respond(errorResponse(404, 'not_found', 'Not found'));
     }
 
     // --- Authenticated endpoints ---
-    if (!requiresAuth(url.pathname)) {
+    if (!requiresAuth(url.pathname) && !isPublicCodeguardRoute(url.pathname)) {
       return respond(errorResponse(404, 'not_found', 'Not found'));
     }
 
@@ -192,6 +211,11 @@ export default {
     const rateLimitResult = await checkRateLimit(env, authCtx);
     if (rateLimitResult) {
       return respond(rateLimitResult);
+    }
+
+    // --- Codeguard telemetry (authed but not routed to DO) ---
+    if (url.pathname === '/api/codeguard/telemetry' && request.method === 'POST') {
+      return respond(await handleTelemetryPush(request, env, authCtx));
     }
 
     // Route to Durable Object

@@ -54,6 +54,21 @@ for t in "$SCRIPT_DIR"/integration/*.sh; do
   fi
 done
 
+# Run codeguard tests
+echo ""
+echo "--- codeguard/ tests ---"
+for t in "$SCRIPT_DIR"/codeguard/*.sh; do
+  name="$(basename "$t")"
+  if bash "$t" >/dev/null 2>&1; then
+    echo "  PASS  $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL  $name"
+    FAIL=$((FAIL + 1))
+    ERRORS+=("codeguard/$name")
+  fi
+done
+
 # Run Node.js projection tests
 echo ""
 echo "--- projections/ tests ---"

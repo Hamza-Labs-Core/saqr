@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "cors-wildcard",
+      "description": "CORS wildcard origin allows any website to make authenticated requests",
+      "severity": "block",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx"],
+      "patterns": [
+        "Access-Control-Allow-Origin.*\\*",
+        "cors\\(\\{[^}]*origin:\\s*['\"]\\*['\"]",
+        "cors\\(\\{[^}]*origin:\\s*true",
+        "origin:\\s*\\[?['\"]\\*['\"]"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow cors-wildcard",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__"
+      ],
+      "suggestion": "Use an explicit allowlist of origins: cors({ origin: ['https://your-domain.com'] })"
+    },
+    {
+      "id": "weak-hash",
+      "description": "MD5/SHA1/SHA256 are not suitable for password hashing — use bcrypt or argon2",
+      "severity": "block",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "createHash\\(['\"]md5['\"]\\)",
+        "createHash\\(['\"]sha1['\"]\\)",
+        "createHash\\(['\"]sha256['\"]\\).*password",
+        "password.*createHash\\(['\"]sha256['\"]\\)"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow weak-hash",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "checksum",
+        "integrity",
+        "content.hash",
+        "file.hash",
+        "sha256.*blob",
+        "blob.*sha256"
+      ],
+      "suggestion": "Use argon2id or bcrypt for password hashing. SHA-256 is fine for content checksums."
+    },
+    {
+      "id": "path-traversal",
+      "description": "Joining user input directly into file paths enables directory traversal attacks",
+      "severity": "block",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "path\\.(join|resolve)\\([^)]*req\\.(params|body|query)",
+        "path\\.(join|resolve)\\([^)]*request\\.(params|body|query)",
+        "readFile(Sync)?\\([^)]*req\\.(params|body|query)",
+        "readFile(Sync)?\\([^)]*\\$\\{.*req\\."
+      ],
+      "exclude_patterns": [
+        "codeguard:allow path-traversal",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "sanitize",
+        "normalize",
+        "\\.replace\\("
+      ],
+      "suggestion": "Sanitize by resolving the path and checking it starts with the intended base directory, or strip '..' sequences."
+    },
+    {
+      "id": "unbounded-body",
+      "description": "Express body parser without size limit can cause OOM denial of service",
+      "severity": "warn",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "express\\.json\\(\\)",
+        "express\\.urlencoded\\(\\)",
+        "bodyParser\\.json\\(\\)",
+        "bodyParser\\.urlencoded\\(\\)"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow unbounded-body",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "limit:",
+        "limit'"
+      ],
+      "suggestion": "Add a size limit: express.json({ limit: '1mb' })"
+    },
+    {
+      "id": "permission-timeout-allow",
+      "description": "Security permission timeouts should deny by default, not allow",
+      "severity": "block",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "timeout.*\\b(allow|grant|permit|approve)\\b",
+        "\\b(allow|grant|permit|approve)\\b.*timeout",
+        "setTimeout.*\\b(allow|grant|permit)\\b"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow permission-timeout-allow",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "deny",
+        "reject",
+        "block"
+      ],
+      "suggestion": "Security timeouts should default to DENY. Use: resolve('denied') or reject(new TimeoutError())."
+    },
+    {
+      "id": "eval-usage",
+      "description": "eval() and new Function() enable code injection attacks",
+      "severity": "block",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx"],
+      "patterns": [
+        "\\beval\\s*\\(",
+        "new\\s+Function\\s*\\("
+      ],
+      "exclude_patterns": [
+        "codeguard:allow eval-usage",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "eslint",
+        "no-eval"
+      ],
+      "suggestion": "Avoid eval/Function constructors. Parse data with JSON.parse() or use a sandboxed interpreter."
+    },
+    {
+      "id": "hardcoded-secret",
+      "description": "Hardcoded secrets in source code get committed and leaked",
+      "severity": "block",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx", "*.json"],
+      "patterns": [
+        "(password|passwd|secret|api_key|apiKey)\\s*[:=]\\s*['\"][^'\"]{8,}['\"]",
+        "\\bsk-[a-zA-Z0-9]{20,}\\b",
+        "\\bghp_[a-zA-Z0-9]{36,}\\b",
+        "\\bAKIA[A-Z0-9]{16}\\b",
+        "\\bxox[baprs]-[a-zA-Z0-9-]{10,}\\b"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow hardcoded-secret",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "\\.example",
+        "placeholder",
+        "CHANGE_ME",
+        "process\\.env",
+        "\\$\\{",
+        "test-secret",
+        "mock",
+        "fake",
+        "dummy"
+      ],
+      "suggestion": "Use environment variables or a secrets manager. Never commit real credentials."
+    },
+    {
+      "id": "sql-injection",
+      "description": "String interpolation in SQL enables injection attacks",
+      "severity": "block",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs"],
+      "patterns": [
+        "`SELECT\\s.*\\$\\{",
+        "`INSERT\\s.*\\$\\{",
+        "`UPDATE\\s.*\\$\\{",
+        "`DELETE\\s.*\\$\\{",
+        "`DROP\\s.*\\$\\{",
+        "\"SELECT\\s.*\"\\s*\\+",
+        "\"INSERT\\s.*\"\\s*\\+",
+        "\"UPDATE\\s.*\"\\s*\\+",
+        "\"DELETE\\s.*\"\\s*\\+"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow sql-injection",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "prepared",
+        "parameterized",
+        "\\$[0-9]",
+        "\\?"
+      ],
+      "suggestion": "Use parameterized queries: db.query('SELECT * FROM users WHERE id = $1', [userId])"
+    },
+    {
+      "id": "console-sensitive",
+      "description": "Logging sensitive data exposes secrets in log aggregators",
+      "severity": "warn",
+      "enabled": true,
+      "file_patterns": ["*.ts", "*.js", "*.mjs", "*.cjs", "*.tsx", "*.jsx"],
+      "patterns": [
+        "console\\.(log|info|debug|warn|error)\\([^)]*\\b(password|secret|token|apiKey|api_key|credential|private_key|privateKey)\\b"
+      ],
+      "exclude_patterns": [
+        "codeguard:allow console-sensitive",
+        "\\.test\\.",
+        "\\.spec\\.",
+        "__tests__",
+        "redact",
+        "mask",
+        "\\*\\*\\*"
+      ],
+      "suggestion": "Redact sensitive fields before logging, or use a structured logger with auto-redaction."
+    }
+  ]
+}

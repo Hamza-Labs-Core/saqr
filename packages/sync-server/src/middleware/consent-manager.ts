@@ -13,12 +13,13 @@ import type { AuthContext } from '../types.js';
 // Consent Types
 // ---------------------------------------------------------------------------
 
-export type ConsentCategory = 'data_sync' | 'analytics' | 'crash_reports';
+export type ConsentCategory = 'data_sync' | 'analytics' | 'crash_reports' | 'rule_telemetry';
 
 export interface ConsentPreferences {
   data_sync: boolean;
   analytics: boolean;
   crash_reports: boolean;
+  rule_telemetry: boolean;
 }
 
 export interface ConsentRecord {
@@ -34,6 +35,7 @@ export const DEFAULT_CONSENT: ConsentPreferences = {
   data_sync: false,
   analytics: false,
   crash_reports: false,
+  rule_telemetry: false,
 };
 
 /** Categories that must be consented to for sync operations */
@@ -61,6 +63,7 @@ export class ConsentManager {
         data_sync   INTEGER DEFAULT 0,
         analytics   INTEGER DEFAULT 0,
         crash_reports INTEGER DEFAULT 0,
+        rule_telemetry INTEGER DEFAULT 0,
         version     INTEGER DEFAULT 1,
         updated_at  TEXT NOT NULL,
         ip_country  TEXT
@@ -84,6 +87,7 @@ export class ConsentManager {
       data_sync: number;
       analytics: number;
       crash_reports: number;
+      rule_telemetry: number;
       version: number;
       updated_at: string;
       ip_country: string | null;
@@ -95,6 +99,7 @@ export class ConsentManager {
         data_sync: row.data_sync === 1,
         analytics: row.analytics === 1,
         crash_reports: row.crash_reports === 1,
+        rule_telemetry: row.rule_telemetry === 1,
       },
       version: row.version,
       updated_at: row.updated_at,
@@ -121,12 +126,13 @@ export class ConsentManager {
     const newVersion = (existing?.version || 0) + 1;
 
     this.sql.exec(
-      `INSERT INTO consent (user_id, data_sync, analytics, crash_reports, version, updated_at, ip_country)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO consent (user_id, data_sync, analytics, crash_reports, rule_telemetry, version, updated_at, ip_country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          data_sync = excluded.data_sync,
          analytics = excluded.analytics,
          crash_reports = excluded.crash_reports,
+         rule_telemetry = excluded.rule_telemetry,
          version = excluded.version,
          updated_at = excluded.updated_at,
          ip_country = excluded.ip_country`,
@@ -134,6 +140,7 @@ export class ConsentManager {
       merged.data_sync ? 1 : 0,
       merged.analytics ? 1 : 0,
       merged.crash_reports ? 1 : 0,
+      merged.rule_telemetry ? 1 : 0,
       newVersion,
       now,
       ipCountry || null,
@@ -254,7 +261,7 @@ export async function handleUpdateConsent(
   }
 
   // Validate categories
-  const validCategories: ConsentCategory[] = ['data_sync', 'analytics', 'crash_reports'];
+  const validCategories: ConsentCategory[] = ['data_sync', 'analytics', 'crash_reports', 'rule_telemetry'];
   for (const key of Object.keys(body.preferences)) {
     if (!validCategories.includes(key as ConsentCategory)) {
       return errorResponse(

@@ -41,6 +41,9 @@ jobs:
       - name: Run tests — sync-server
         run: pnpm --filter sync-server run test
 
+      - name: Run tests — admin-server
+        run: pnpm --filter admin-server run test
+
       - name: Run tests — dashboard
         run: pnpm --filter dashboard run test
 

@@ -68,6 +68,18 @@ export const CLAUDE_CODE_HOOKS: readonly ClaudeCodeHookDef[] = Object.freeze([
 ]);
 
 /**
+ * Codeguard PreToolUse hook definition.
+ * This is a separate matcher group for Edit|Write that runs the codeguard
+ * anti-pattern scanner before agentctx-hook's general ToolCallRequested.
+ */
+export const CODEGUARD_HOOK_DEF = Object.freeze({
+  nativeEvent: "PreToolUse",
+  matcher: "Edit|Write",
+  command: "agentctx-codeguard",
+  timeout: 10000,
+});
+
+/**
  * Reverse mapping: native hook name -> unified event type.
  */
 const NATIVE_TO_UNIFIED = new Map<string, string>(
@@ -93,10 +105,14 @@ export class ClaudeCodeIntegration implements HookIntegration {
   /** Sequence counter per session */
   private sessionSequences = new Map<string, number>();
 
-  constructor(options?: { settingsPath?: string; hookBinPath?: string }) {
+  /** Override for the codeguard binary path (for testing) */
+  private codeguardBinPath: string;
+
+  constructor(options?: { settingsPath?: string; hookBinPath?: string; codeguardBinPath?: string }) {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "/tmp";
     this.settingsPath = options?.settingsPath ?? join(home, ".claude", "settings.json");
     this.hookBinPath = options?.hookBinPath ?? join(home, ".agentctx", "bin", "agentctx-hook");
+    this.codeguardBinPath = options?.codeguardBinPath ?? join(home, ".agentctx", "bin", "agentctx-codeguard");
   }
 
   /**
@@ -140,6 +156,37 @@ export class ClaudeCodeIntegration implements HookIntegration {
 
       // Build hook configuration
       const hooks: Record<string, unknown[]> = (settings.hooks as Record<string, unknown[]>) ?? {};
+
+      // --- Codeguard hook: Edit|Write anti-pattern scanner ---
+      {
+        const codeguardEntry = {
+          matcher: CODEGUARD_HOOK_DEF.matcher,
+          hooks: [
+            {
+              type: "command",
+              command: this.codeguardBinPath,
+              timeout: CODEGUARD_HOOK_DEF.timeout,
+            },
+          ],
+        };
+
+        const existingPreToolUse = (hooks.PreToolUse ?? []) as Record<string, unknown>[];
+
+        // Remove old codeguard entries and old inline jq/grep checks
+        const filtered = existingPreToolUse.filter((h) => {
+          const innerHooks = (h.hooks ?? []) as Record<string, unknown>[];
+          const hasCodeguard = innerHooks.some((ih) =>
+            String(ih.command ?? "").includes("agentctx-codeguard"),
+          );
+          const hasOldInlineCheck = innerHooks.some((ih) =>
+            String(ih.command ?? "").includes("jq") && String(ih.command ?? "").includes("grep"),
+          );
+          return !hasCodeguard && !hasOldInlineCheck;
+        });
+
+        // Prepend codeguard (runs before other PreToolUse hooks)
+        hooks.PreToolUse = [codeguardEntry, ...filtered];
+      }
 
       for (const hookDef of CLAUDE_CODE_HOOKS) {
         const hookEntry: Record<string, unknown> = {
@@ -210,7 +257,7 @@ export class ClaudeCodeIntegration implements HookIntegration {
   }
 
   /**
-   * Uninstall Claude Code hooks by removing agentctx-hook entries from settings.json.
+   * Uninstall Claude Code hooks by removing agentctx-hook and codeguard entries from settings.json.
    * Preserves user-defined hooks.
    */
   async uninstall(): Promise<void> {
@@ -218,6 +265,16 @@ export class ClaudeCodeIntegration implements HookIntegration {
       const content = await readFile(this.settingsPath, "utf-8");
       const settings = JSON.parse(content);
       const hooks: Record<string, unknown[]> = settings.hooks ?? {};
+
+      // Remove codeguard matcher groups from PreToolUse
+      if (hooks.PreToolUse) {
+        hooks.PreToolUse = (hooks.PreToolUse as Record<string, unknown>[]).filter((h) => {
+          const innerHooks = (h.hooks ?? []) as Record<string, unknown>[];
+          return !innerHooks.some((ih) =>
+            String(ih.command ?? "").includes("agentctx-codeguard"),
+          );
+        });
+      }
 
       for (const hookDef of CLAUDE_CODE_HOOKS) {
         const entries = (hooks[hookDef.nativeEvent] ?? []) as Record<string, unknown>[];

@@ -264,6 +264,7 @@ export function createMockEnv(overrides?: Partial<Env>): Env {
     USER_SYNC: new MockDurableObjectNamespace() as unknown as DurableObjectNamespace,
     SYNC_BUCKET: new MockR2Bucket() as unknown as R2Bucket,
     AUTH_KV: new MockKVNamespace() as unknown as KVNamespace,
+    REGISTRY_KV: new MockKVNamespace() as unknown as KVNamespace,
     JWT_SECRET: 'test-secret-key-for-testing-only-minimum-length',
     JWT_ISSUER: 'saqr',
     JWT_AUDIENCE: 'saqr-sync',

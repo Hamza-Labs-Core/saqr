@@ -50,9 +50,10 @@ class MockConsentSqlStorage {
         data_sync: params[1],
         analytics: params[2],
         crash_reports: params[3],
-        version: params[4],
-        updated_at: params[5],
-        ip_country: params[6],
+        rule_telemetry: params[4],
+        version: params[5],
+        updated_at: params[6],
+        ip_country: params[7],
       };
       return { toArray: () => [] };
     }

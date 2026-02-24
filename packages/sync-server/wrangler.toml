@@ -23,6 +23,10 @@ bucket_name = "saqr-sync-data"
 binding = "AUTH_KV"
 id = "TBD"
 
+[[kv_namespaces]]
+binding = "REGISTRY_KV"
+id = "TBD"
+
 [vars]
 JWT_ISSUER = "saqr"
 JWT_AUDIENCE = "saqr-sync"
