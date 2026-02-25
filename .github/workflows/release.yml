@@ -84,6 +84,51 @@ jobs:
           path: saqr-v${{ needs.version.outputs.version }}-android.apk
           retention-days: 5
 
+  # ─── Mobile iOS Build ────────────────────────────────────────────────
+
+  build-mobile-ios:
+    name: Build iOS (Release)
+    needs: version
+    if: ${{ vars.ENABLE_MOBILE_BUILD == 'true' }}
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh
+
+      - name: Prebuild iOS
+        working-directory: packages/mobile
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Build for simulator
+        working-directory: packages/mobile/ios
+        run: |
+          xcodebuild -workspace Saqr.xcworkspace -scheme Saqr \
+            -sdk iphonesimulator -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: packages/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app
+          retention-days: 5
+
   # ─── Desktop Builds (Tauri) ─────────────────────────────────────────
 
   build-desktop-macos:
@@ -341,6 +386,7 @@ jobs:
     needs:
       - version
       - build-mobile-android
+      - build-mobile-ios
       - build-desktop-macos
       - build-desktop-windows
       - build-desktop-linux
