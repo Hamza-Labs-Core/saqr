@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saqr</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+    .loading {
+      text-align: center;
+    }
+    .loading p {
+      margin-top: 1rem;
+      opacity: 0.7;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #4a90d9;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+  <script>
+    // Redirect to the running dashboard server.
+    // The Saqr daemon must be running for the desktop app to show content.
+    function connectToDashboard() {
+      var dashboardUrl = 'http://localhost:7399';
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', dashboardUrl + '/api/health', true);
+      xhr.timeout = 2000;
+      xhr.onload = function() {
+        window.location.href = dashboardUrl;
+      };
+      xhr.onerror = function() {
+        // Retry after 2 seconds
+        setTimeout(connectToDashboard, 2000);
+      };
+      xhr.ontimeout = function() {
+        setTimeout(connectToDashboard, 2000);
+      };
+      xhr.send();
+    }
+
+    // Start connection attempt after page load
+    window.addEventListener('DOMContentLoaded', function() {
+      connectToDashboard();
+    });
+  </script>
+</head>
+<body>
+  <div class="loading">
+    <div class="spinner"></div>
+    <p>Connecting to Saqr Dashboard...</p>
+    <p><small>Waiting for daemon to start</small></p>
+  </div>
+</body>
+</html>

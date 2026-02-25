@@ -62,6 +62,22 @@ if [[ -f "$APP_JSON" ]]; then
   echo "Updated $APP_JSON"
 fi
 
+# Update desktop tauri.conf.json
+TAURI_CONF="$(git rev-parse --show-toplevel)/packages/desktop/src-tauri/tauri.conf.json"
+if [[ -f "$TAURI_CONF" ]]; then
+  tmp=$(mktemp)
+  jq --arg v "$VERSION" '.version = $v' "$TAURI_CONF" > "$tmp" && mv "$tmp" "$TAURI_CONF"
+  echo "Updated $TAURI_CONF"
+fi
+
+# Update desktop Cargo.toml
+CARGO_TOML="$(git rev-parse --show-toplevel)/packages/desktop/src-tauri/Cargo.toml"
+if [[ -f "$CARGO_TOML" ]]; then
+  # Replace version in [package] section only (first occurrence)
+  sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" "$CARGO_TOML"
+  echo "Updated $CARGO_TOML"
+fi
+
 # Write to GitHub Actions output
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "version=$VERSION" >> "$GITHUB_OUTPUT"

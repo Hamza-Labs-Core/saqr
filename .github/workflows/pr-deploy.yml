@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 concurrency:
@@ -30,55 +30,6 @@ jobs:
       - name: Compute version
         id: version
         run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
-
-  build-mobile:
-    name: Build Mobile (preview)
-    needs: version
-    if: ${{ vars.ENABLE_EAS_BUILD == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Apply version
-        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Build preview
-        working-directory: packages/mobile
-        run: eas build --platform all --profile preview --non-interactive --no-wait
-
-      - name: Comment build status on PR
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const version = '${{ needs.version.outputs.version }}';
-            const body = `## Mobile Preview Build\n\n` +
-              `**Version:** \`${version}\`\n` +
-              `**Status:** Build submitted to EAS\n` +
-              `**Profile:** preview (internal distribution)\n\n` +
-              `View builds at [expo.dev](https://expo.dev/accounts/saqr/projects/saqr/builds)`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });
 
   deploy-servers-preview:
     name: Deploy Servers (preview)
@@ -132,7 +83,7 @@ jobs:
 
   prerelease:
     name: Create Prerelease
-    needs: [version, build-mobile, deploy-servers-preview]
+    needs: [version, deploy-servers-preview]
     if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:
@@ -140,6 +91,15 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create prerelease tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ needs.version.outputs.version }}"
+          git push origin "v${{ needs.version.outputs.version }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create prerelease
         run: |

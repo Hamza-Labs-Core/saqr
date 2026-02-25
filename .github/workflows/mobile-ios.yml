@@ -1,0 +1,40 @@
+name: Mobile - iOS Simulator
+
+on:
+  push:
+    paths: ["packages/mobile/**"]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prebuild iOS
+        run: cd packages/mobile && npx expo prebuild --platform ios --clean
+
+      - name: Build for simulator
+        run: |
+          cd packages/mobile/ios
+          xcodebuild -workspace Saqr.xcworkspace -scheme Saqr \
+            -sdk iphonesimulator -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saqr-ios-simulator
+          path: packages/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app
+          retention-days: 30
