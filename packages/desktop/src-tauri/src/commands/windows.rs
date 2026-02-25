@@ -4,6 +4,7 @@
 //! get_window_state commands matching the TypeScript IpcCommandMap.
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use url::Url;
 
 use crate::window_state::{self, WindowInfo, WindowState};
 
@@ -39,7 +40,7 @@ pub async fn open_agent_window(
     let mut builder = WebviewWindowBuilder::new(
         &app,
         &label,
-        WebviewUrl::External(url.parse().map_err(|e| e.to_string())?),
+        WebviewUrl::External(url.parse::<Url>().map_err(|e| e.to_string())?),
     )
     .title(format!("Saqr - {}", agent_name))
     .inner_size(width, height)

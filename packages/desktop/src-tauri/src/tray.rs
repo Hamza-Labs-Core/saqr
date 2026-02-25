@@ -322,7 +322,7 @@ fn handle_menu_event(app: &AppHandle, event_id: &str) {
             });
         }
         "start-daemon" => {
-            let app = app.clone();
+            let _app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = tokio::process::Command::new("saqr")
                     .args(["daemon", "start"])
@@ -331,7 +331,7 @@ fn handle_menu_event(app: &AppHandle, event_id: &str) {
             });
         }
         "stop-daemon" => {
-            let app = app.clone();
+            let _app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = tokio::process::Command::new("saqr")
                     .args(["daemon", "stop"])
