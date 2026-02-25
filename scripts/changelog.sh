@@ -65,7 +65,7 @@ if [[ ${#FEATURES[@]} -eq 0 && ${#FIXES[@]} -eq 0 && ${#DOCS[@]} -eq 0 && ${#OTH
   if [[ -n "$SINCE_TAG" ]]; then
     RANGE="${SINCE_TAG}..HEAD"
   else
-    RANGE="HEAD~20..HEAD"
+    RANGE="HEAD~100..HEAD"
   fi
 
   while IFS= read -r msg; do

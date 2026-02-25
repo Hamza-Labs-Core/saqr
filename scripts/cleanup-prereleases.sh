@@ -25,14 +25,12 @@ done
 
 echo "Keeping the $KEEP most recent prereleases"
 
-# List all prereleases sorted by date (newest first)
-# gh release list outputs: title, type (Pre-release/Latest/Draft), tag, date
+# List all prerelease tags using JSON output for stability across gh CLI versions
 PRERELEASES=()
-while IFS=$'\t' read -r _title type tag _date; do
-  if [[ "$type" == "Pre-release" ]]; then
-    PRERELEASES+=("$tag")
-  fi
-done < <(gh release list --exclude-drafts --limit 100 2>/dev/null || true)
+while IFS= read -r tag; do
+  [[ -z "$tag" ]] && continue
+  PRERELEASES+=("$tag")
+done < <(gh release list --json tagName,isPrerelease --jq '.[] | select(.isPrerelease) | .tagName' --limit 100 2>/dev/null || true)
 
 TOTAL=${#PRERELEASES[@]}
 echo "Found $TOTAL prereleases"
