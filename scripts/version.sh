@@ -74,7 +74,9 @@ fi
 CARGO_TOML="$(git rev-parse --show-toplevel)/packages/desktop/src-tauri/Cargo.toml"
 if [[ -f "$CARGO_TOML" ]]; then
   # Replace version in [package] section only (first occurrence)
-  sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" "$CARGO_TOML"
+  # Uses awk instead of sed for macOS/GNU portability
+  tmp=$(mktemp)
+  awk -v ver="$VERSION" '/^version = "/ && done==0 { print "version = \"" ver "\""; done=1; next } 1' "$CARGO_TOML" > "$tmp" && mv "$tmp" "$CARGO_TOML"
   echo "Updated $CARGO_TOML"
 fi
 
