@@ -5,68 +5,156 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Saqr</title>
   <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
       display: flex;
       align-items: center;
       justify-content: center;
       height: 100vh;
-      margin: 0;
-      background: #1a1a2e;
-      color: #e0e0e0;
+      background: #0d1117;
+      color: #c9d1d9;
     }
-    .loading {
-      text-align: center;
-    }
-    .loading p {
-      margin-top: 1rem;
-      opacity: 0.7;
-    }
+    .container { text-align: center; max-width: 400px; padding: 2rem; }
+    .logo { font-size: 2.5rem; margin-bottom: 1.5rem; opacity: 0.9; }
+    .status { margin: 1rem 0; font-size: 0.95rem; color: #8b949e; min-height: 1.5em; }
     .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid rgba(255, 255, 255, 0.1);
-      border-top-color: #4a90d9;
+      width: 32px; height: 32px;
+      border: 3px solid #21262d;
+      border-top-color: #58a6ff;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
-      margin: 0 auto;
+      margin: 1rem auto;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { color: #f85149; }
+    .btn {
+      display: none;
+      margin: 1rem auto 0;
+      padding: 0.5rem 1.5rem;
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .btn:hover { background: #30363d; }
+    .btn.visible { display: inline-block; }
+    .steps {
+      margin-top: 2rem;
+      padding: 1rem;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      text-align: left;
+      font-size: 0.85rem;
+      color: #8b949e;
+      display: none;
+    }
+    .steps.visible { display: block; }
+    .steps p { margin: 0.4rem 0; }
+    .steps code {
+      background: #21262d;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.85em;
+      color: #c9d1d9;
     }
   </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Saqr</div>
+    <div class="spinner" id="spinner"></div>
+    <div class="status" id="status">Starting daemon...</div>
+    <button class="btn" id="retryBtn" onclick="startApp()">Retry</button>
+    <div class="steps" id="steps">
+      <p><strong>The Saqr daemon could not be started.</strong></p>
+      <p>Make sure the CLI is installed:</p>
+      <p><code>pnpm install -g @saqr/cli</code></p>
+      <p>Then start manually:</p>
+      <p><code>saqr daemon start</code></p>
+    </div>
+  </div>
   <script>
-    // Redirect to the running dashboard server.
-    // The Saqr daemon must be running for the desktop app to show content.
-    function connectToDashboard() {
-      var dashboardUrl = 'http://localhost:7399';
+    var DASHBOARD_URL = 'http://localhost:7399';
+    var MAX_HEALTH_RETRIES = 15;
+    var statusEl = document.getElementById('status');
+    var spinnerEl = document.getElementById('spinner');
+    var retryBtn = document.getElementById('retryBtn');
+    var stepsEl = document.getElementById('steps');
+
+    function setStatus(msg, isError) {
+      statusEl.textContent = msg;
+      statusEl.className = 'status' + (isError ? ' error' : '');
+    }
+
+    function showRetry() {
+      spinnerEl.style.display = 'none';
+      retryBtn.className = 'btn visible';
+      stepsEl.className = 'steps visible';
+    }
+
+    function hideRetry() {
+      spinnerEl.style.display = 'block';
+      retryBtn.className = 'btn';
+      stepsEl.className = 'steps';
+    }
+
+    function checkHealth(attempt) {
+      if (attempt > MAX_HEALTH_RETRIES) {
+        setStatus('Daemon did not respond after ' + MAX_HEALTH_RETRIES + ' attempts.', true);
+        showRetry();
+        return;
+      }
+
+      setStatus('Waiting for daemon... (' + attempt + '/' + MAX_HEALTH_RETRIES + ')');
+
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', dashboardUrl + '/api/health', true);
+      xhr.open('GET', DASHBOARD_URL + '/api/health', true);
       xhr.timeout = 2000;
-      xhr.onload = function() {
-        window.location.href = dashboardUrl;
+      xhr.onload = function () {
+        setStatus('Connected — loading dashboard...');
+        setTimeout(function () {
+          window.location.href = DASHBOARD_URL;
+        }, 300);
       };
-      xhr.onerror = function() {
-        // Retry after 2 seconds
-        setTimeout(connectToDashboard, 2000);
-      };
-      xhr.ontimeout = function() {
-        setTimeout(connectToDashboard, 2000);
-      };
+      xhr.onerror = function () { setTimeout(function () { checkHealth(attempt + 1); }, 1000); };
+      xhr.ontimeout = function () { setTimeout(function () { checkHealth(attempt + 1); }, 1000); };
       xhr.send();
     }
 
-    // Start connection attempt after page load
-    window.addEventListener('DOMContentLoaded', function() {
-      connectToDashboard();
-    });
+    function startApp() {
+      hideRetry();
+      setStatus('Starting daemon...');
+
+      // Use Tauri IPC if available, otherwise just poll
+      if (window.__TAURI__) {
+        window.__TAURI__.core.invoke('start_daemon')
+          .then(function (result) {
+            if (result && result.running) {
+              setStatus('Daemon started — loading dashboard...');
+              setTimeout(function () {
+                window.location.href = DASHBOARD_URL;
+              }, 300);
+            } else {
+              setStatus('Daemon started, waiting for health check...');
+              checkHealth(1);
+            }
+          })
+          .catch(function (err) {
+            setStatus('Failed to start daemon: ' + err, true);
+            // Still try polling — daemon might already be running externally
+            checkHealth(1);
+          });
+      } else {
+        // Not in Tauri (dev mode or browser) — just poll
+        checkHealth(1);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', startApp);
   </script>
-</head>
-<body>
-  <div class="loading">
-    <div class="spinner"></div>
-    <p>Connecting to Saqr Dashboard...</p>
-    <p><small>Waiting for daemon to start</small></p>
-  </div>
 </body>
 </html>
