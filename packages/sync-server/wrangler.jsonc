@@ -1,0 +1,51 @@
+{
+  "name": "saqr-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "placement": {
+    "mode": "smart"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "USER_SYNC", "class_name": "UserSyncDO" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["UserSyncDO"]
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SYNC_BUCKET",
+      "bucket_name": "saqr-sync-data"
+    }
+  ],
+  "kv_namespaces": [
+    { "binding": "AUTH_KV", "id": "TBD" },
+    { "binding": "REGISTRY_KV", "id": "TBD" }
+  ],
+  "vars": {
+    "JWT_ISSUER": "saqr",
+    "JWT_AUDIENCE": "saqr-sync",
+    "FREE_TIER_STORAGE_BYTES": "5242880",
+    "PRO_TIER_STORAGE_BYTES": "524288000",
+    "TEAM_TIER_STORAGE_BYTES": "5368709120",
+    "FREE_TIER_MACHINES": "2",
+    "PRO_TIER_MACHINES": "5",
+    "TEAM_TIER_MACHINES": "0",
+    "FREE_TIER_RATE_PER_MIN": "60",
+    "PRO_TIER_RATE_PER_MIN": "600",
+    "TEAM_TIER_RATE_PER_MIN": "6000",
+    "FREE_TIER_RETENTION_DAYS": "30",
+    "PRO_TIER_RETENTION_DAYS": "365",
+    "TEAM_TIER_RETENTION_DAYS": "0"
+  },
+  "env": {
+    "preview": {
+      "name": "saqr-sync-preview"
+    }
+  }
+}
