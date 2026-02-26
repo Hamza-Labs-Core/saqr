@@ -459,11 +459,89 @@ jobs:
               });
             }
 
+  # ─── Web Client Preview Deploy (Expo Web → Cloudflare Workers) ─────
+
+  deploy-web-preview:
+    name: Deploy Web (preview)
+    needs: version
+    if: ${{ vars.ENABLE_WEB_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+      - name: Export web build
+        working-directory: packages/mobile
+        run: npx expo export --platform web
+
+      - name: Deploy to Cloudflare Workers (preview)
+        id: deploy
+        working-directory: packages/mobile
+        run: |
+          OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          echo "$OUTPUT"
+          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          echo "url=${URL:-https://saqr-web-preview.workers.dev}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upsert web preview comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- saqr-web-preview -->';
+            const version = '${{ needs.version.outputs.version }}';
+            const webUrl = '${{ steps.deploy.outputs.url }}';
+            const body = `${marker}\n## Web Preview\n\n` +
+              `**Version:** \`${version}\`\n\n` +
+              `${webUrl}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
   # ─── Prerelease ─────────────────────────────────────────────────────
 
   prerelease:
     name: Create Prerelease
-    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, deploy-servers-preview]
+    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, deploy-servers-preview, deploy-web-preview]
     if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:

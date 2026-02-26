@@ -314,10 +314,10 @@ jobs:
             packages/desktop/src-tauri/target/release/bundle/deb/*.deb
           retention-days: 5
 
-  # ─── Web Deploy (Expo Web -> Cloudflare Pages) ──────────────────────
+  # ─── Web Deploy (Expo Web → Cloudflare Workers) ────────────────────
 
   deploy-web:
-    name: Deploy Web (Cloudflare Pages)
+    name: Deploy Web (Cloudflare Workers)
     needs: version
     if: ${{ vars.ENABLE_WEB_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
@@ -344,8 +344,9 @@ jobs:
         working-directory: packages/mobile
         run: npx expo export --platform web
 
-      - name: Deploy to Cloudflare Pages
-        run: npx wrangler pages deploy packages/mobile/dist --project-name saqr-app
+      - name: Deploy to Cloudflare Workers
+        working-directory: packages/mobile
+        run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
