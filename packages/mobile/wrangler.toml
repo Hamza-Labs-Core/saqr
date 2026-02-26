@@ -1,8 +1,0 @@
-name = "saqr-web"
-compatibility_date = "2025-01-01"
-
-[assets]
-directory = "./dist"
-
-[env.preview]
-name = "saqr-web-preview"
