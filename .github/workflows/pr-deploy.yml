@@ -72,11 +72,17 @@ jobs:
         working-directory: packages/mobile/android
         run: ./gradlew assembleDebug
 
+      - name: Rename APK
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          APK_PATH=$(find packages/mobile/android/app/build/outputs/apk/debug -name "*.apk" | head -1)
+          cp "$APK_PATH" "saqr-v${VERSION}-android.apk"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-preview
-          path: packages/mobile/android/app/build/outputs/apk/debug/*.apk
+          path: saqr-v${{ needs.version.outputs.version }}-android.apk
           retention-days: 5
 
   # ─── Mobile iOS Simulator Preview ────────────────────────────────────
@@ -117,11 +123,18 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
 
+      - name: Package iOS simulator app
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          APP_PATH=$(find packages/mobile/ios/build/Build/Products/Release-iphonesimulator -name "*.app" -maxdepth 1 | head -1)
+          cd "$(dirname "$APP_PATH")"
+          tar czf "saqr-v${VERSION}-ios-simulator.app.tar.gz" "$(basename "$APP_PATH")"
+
       - name: Upload iOS simulator artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-preview
-          path: packages/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app
+          path: packages/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app.tar.gz
           retention-days: 5
 
   # ─── Mobile Build Comment ────────────────────────────────────────────
@@ -261,6 +274,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
       - name: Create prerelease tag
         run: |
           git config user.name "github-actions[bot]"
@@ -270,12 +288,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create prerelease
+      - name: Create prerelease with assets
         run: |
-          gh release create "v${{ needs.version.outputs.version }}" \
-            --prerelease \
-            --title "v${{ needs.version.outputs.version }}" \
-            --generate-notes
+          VERSION="v${{ needs.version.outputs.version }}"
+
+          # Collect all asset files
+          ASSETS=()
+          if [[ -d release-assets ]]; then
+            while IFS= read -r file; do
+              ASSETS+=("$file")
+            done < <(find release-assets -type f \( \
+              -name "*.apk" -o \
+              -name "*.app" -o \
+              -name "*.app.tar.gz" \
+            \))
+          fi
+
+          echo "Assets found: ${#ASSETS[@]}"
+          printf '  %s\n' "${ASSETS[@]}"
+
+          CMD=(gh release create "$VERSION" --prerelease --title "$VERSION" --generate-notes)
+          for asset in "${ASSETS[@]}"; do
+            CMD+=("$asset")
+          done
+
+          "${CMD[@]}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

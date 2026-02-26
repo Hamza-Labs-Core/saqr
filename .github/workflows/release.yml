@@ -122,11 +122,18 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
 
+      - name: Package iOS simulator app
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          APP_PATH=$(find packages/mobile/ios/build/Build/Products/Release-iphonesimulator -name "*.app" -maxdepth 1 | head -1)
+          cd "$(dirname "$APP_PATH")"
+          tar czf "saqr-v${VERSION}-ios-simulator.app.tar.gz" "$(basename "$APP_PATH")"
+
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator
-          path: packages/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app
+          path: packages/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app.tar.gz
           retention-days: 5
 
   # ─── Desktop Builds (Tauri) ─────────────────────────────────────────
