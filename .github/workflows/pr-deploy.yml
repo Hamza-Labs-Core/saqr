@@ -159,7 +159,7 @@ jobs:
               ['Android APK', '${{ needs.build-mobile-android.result }}'],
               ['iOS Simulator', '${{ needs.build-mobile-ios.result }}'],
               ['macOS (.dmg)', '${{ needs.build-desktop-macos.result }}'],
-              ['Windows (.exe/.msi)', '${{ needs.build-desktop-windows.result }}'],
+              ['Windows (.exe)', '${{ needs.build-desktop-windows.result }}'],
               ['Linux (.AppImage/.deb)', '${{ needs.build-desktop-linux.result }}'],
             ];
 
@@ -292,13 +292,14 @@ jobs:
       - name: Build dashboard frontend
         run: pnpm --filter dashboard run build
 
-      - name: Build Tauri app
+      - name: Build Tauri app (NSIS only — MSI rejects pre-release versions)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: packages/desktop
           tauriScript: npx tauri
+          args: --bundles nsis
           tagName: ""
           releaseName: ""
 
@@ -306,9 +307,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-windows-preview
-          path: |
-            packages/desktop/src-tauri/target/release/bundle/nsis/*.exe
-            packages/desktop/src-tauri/target/release/bundle/msi/*.msi
+          path: packages/desktop/src-tauri/target/release/bundle/nsis/*.exe
           retention-days: 5
 
   build-desktop-linux:
