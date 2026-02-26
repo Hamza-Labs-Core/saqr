@@ -92,6 +92,10 @@ pnpm --filter <package> run test    # run tests for a package
 pnpm --filter daemon run test       # example: daemon (757 tests)
 ```
 
+## Acknowledgements
+
+Inspired by [Paseo](https://github.com/nichochar/paseo) — the original vision for agent observation and management.
+
 ## License
 
 MIT
