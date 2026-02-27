@@ -15,15 +15,15 @@
     },
     "./types/timeline": {
       "types": "./src/types/timeline.ts",
-      "import": "./dist/types/timeline.js"
+      "import": "./src/types/timeline.ts"
     },
     "./theme": {
       "types": "./src/theme/index.ts",
-      "import": "./dist/theme/index.js"
+      "import": "./src/theme/index.ts"
     },
     "./normalization": {
       "types": "./src/normalization/index.ts",
-      "import": "./dist/normalization/index.js"
+      "import": "./src/normalization/index.ts"
     }
   },
   "files": [

@@ -487,6 +487,9 @@ jobs:
       - name: Apply version
         run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
 
+      - name: Build workspace dependencies
+        run: pnpm --filter @saqr/shared build
+
       - name: Export web build
         working-directory: packages/mobile
         run: npx expo export --platform web
