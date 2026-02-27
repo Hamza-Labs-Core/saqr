@@ -12,6 +12,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./types/timeline": {
+      "types": "./dist/types/timeline.d.ts",
+      "import": "./dist/types/timeline.js"
+    },
+    "./theme": {
+      "types": "./dist/theme/index.d.ts",
+      "import": "./dist/theme/index.js"
+    },
+    "./normalization": {
+      "types": "./dist/normalization/index.d.ts",
+      "import": "./dist/normalization/index.js"
     }
   },
   "files": [

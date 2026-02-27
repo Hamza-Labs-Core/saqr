@@ -57,7 +57,7 @@ export function useTerminalStream(options: UseTerminalStreamOptions): UseTermina
     function connect() {
       setConnectionState("connecting");
 
-      const url = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
+      const url = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl!;
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
