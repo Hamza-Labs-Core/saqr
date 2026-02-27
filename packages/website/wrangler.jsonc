@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "saqr-website",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./build/client"
+  },
+  "main": "./build/server/index.js",
+  "vars": {
+    "SYNC_SERVER_URL": "https://sync.saqr.dev",
+    "ADMIN_SERVER_URL": "https://admin.saqr.dev"
+  },
+  "env": {
+    "preview": {
+      "name": "saqr-website-preview"
+    }
+  }
+}

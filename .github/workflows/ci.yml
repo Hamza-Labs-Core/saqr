@@ -63,6 +63,15 @@ jobs:
       - name: Run tests — desktop
         run: pnpm --filter desktop run test
 
+      - name: Run tests — terminal-ui
+        run: pnpm --filter terminal-ui run test
+
+      - name: Run tests — website
+        run: pnpm --filter website run test
+
+      - name: Run tests — installer
+        run: pnpm --filter installer run test
+
   gc-core:
     name: gc-core (bash)
     runs-on: ubuntu-latest

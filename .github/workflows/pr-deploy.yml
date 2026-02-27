@@ -537,11 +537,51 @@ jobs:
               });
             }
 
+  # ─── Website Preview Deploy ────────────────────────────────────────
+
+  deploy-website-preview:
+    name: Deploy Website (preview)
+    needs: version
+    if: ${{ vars.ENABLE_WEBSITE_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build website
+        working-directory: packages/website
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Workers (preview)
+        id: deploy
+        working-directory: packages/website
+        run: |
+          OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          echo "$OUTPUT"
+          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          echo "url=${URL:-https://saqr-website-preview.workers.dev}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
   # ─── Prerelease ─────────────────────────────────────────────────────
 
   prerelease:
     name: Create Prerelease
-    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, deploy-servers-preview, deploy-web-preview]
+    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, deploy-servers-preview, deploy-web-preview, deploy-website-preview]
     if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:

@@ -387,6 +387,83 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+  # ─── Website Deploy (React Router → Cloudflare Workers) ────────────
+
+  deploy-website:
+    name: Deploy Website (production)
+    needs: version
+    if: ${{ vars.ENABLE_WEBSITE_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build website
+        working-directory: packages/website
+        run: pnpm build
+
+      - name: Deploy website to Cloudflare Workers
+        working-directory: packages/website
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ─── Standalone Installer Build ───────────────────────────────────
+
+  build-installer-linux:
+    name: Build Installer (Linux)
+    needs: version
+    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SEA binary
+        working-directory: packages/installer
+        run: node scripts/build-sea.js
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Create tar.gz
+        working-directory: packages/installer
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          mkdir -p dist/saqr-v${VERSION}-linux-amd64
+          cp dist/saqr dist/saqr-v${VERSION}-linux-amd64/
+          tar -czf dist/saqr-v${VERSION}-linux-amd64.tar.gz -C dist saqr-v${VERSION}-linux-amd64
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-linux
+          path: packages/installer/dist/saqr-v${{ needs.version.outputs.version }}-linux-amd64.tar.gz
+          retention-days: 5
+
   # ─── Release (Changelog + Tag + GitHub Release + Assets) ────────────
 
   release:
@@ -400,6 +477,8 @@ jobs:
       - build-desktop-linux
       - deploy-web
       - deploy-servers
+      - deploy-website
+      - build-installer-linux
     if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:

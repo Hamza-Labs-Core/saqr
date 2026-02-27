@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.saqr.desktop",
   "build": {
-    "frontendDist": "../frontend",
-    "devUrl": "http://localhost:7399"
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "withGlobalTauri": true,
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* http://localhost:*; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* wss://*.saqr.dev http://localhost:* https://*.saqr.dev https://sync.saqr.dev; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

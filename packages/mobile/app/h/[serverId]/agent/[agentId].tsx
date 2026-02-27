@@ -1,11 +1,12 @@
 import React from "react";
 import { View, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useAgentStream } from "../../../../hooks/use-agent-stream";
 import { useDaemonStore } from "../../../../stores/daemon-store";
-import { AgentStream } from "../../../../components/AgentStream";
+import { useTerminalStream } from "../../../../hooks/use-terminal-stream";
+import { TerminalStream } from "../../../../components/TerminalStream";
 import { PromptInput } from "../../../../components/PromptInput";
-import { PermissionPrompt } from "../../../../components/PermissionPrompt";
+import { VoicePanel } from "../../../../components/VoicePanel";
+import { useVoiceInput } from "../../../../hooks/use-voice-input";
 import { useThemeContext } from "../../../../lib/theme";
 
 export default function AgentDetailScreen() {
@@ -16,18 +17,33 @@ export default function AgentDetailScreen() {
   const { theme } = useThemeContext();
   const getDaemon = useDaemonStore((s) => s.getDaemon);
   const daemon = serverId ? getDaemon(serverId) : undefined;
-  const wsUrl = daemon?.lanAddress ? `ws://${daemon.lanAddress}` : null;
+  const wsUrl = daemon?.lanAddress
+    ? `ws://${daemon.lanAddress}/ws/session/${agentId}`
+    : null;
 
-  const { events, isConnected, sendPrompt, approvePermission, denyPermission } =
-    useAgentStream(wsUrl, agentId ?? "");
+  const {
+    items,
+    connectionState,
+    sessionInfo,
+    sendInput,
+    sendPermissionResponse,
+  } = useTerminalStream({
+    wsUrl,
+    sessionId: agentId ?? "",
+  });
 
-  // Separate permission events from stream events
-  const permissionEvents = events.filter(
-    (e) => e.type === "permission_request",
-  );
-  const streamEvents = events.filter(
-    (e) => e.type !== "permission_request",
-  );
+  const voice = useVoiceInput();
+
+  // When voice finalizes, send transcript as input
+  React.useEffect(() => {
+    if (voice.finalTranscript) {
+      sendInput(voice.finalTranscript);
+    }
+  }, [voice.finalTranscript, sendInput]);
+
+  function handleSend(text: string) {
+    sendInput(text);
+  }
 
   return (
     <KeyboardAvoidingView
@@ -36,31 +52,26 @@ export default function AgentDetailScreen() {
       keyboardVerticalOffset={88}
     >
       <View style={styles.streamContainer}>
-        <AgentStream events={streamEvents} />
+        <TerminalStream
+          items={items}
+          onPermissionResponse={sendPermissionResponse}
+        />
       </View>
 
-      {permissionEvents.map((perm) => (
-        <PermissionPrompt
-          key={String(perm.data["toolUseId"] ?? perm.timestamp)}
-          request={{
-            toolUseId: String(perm.data["toolUseId"] ?? ""),
-            toolName: String(perm.data["toolName"] ?? ""),
-            toolInput: (perm.data["toolInput"] as Record<string, unknown>) ?? {},
-            description: String(perm.data["description"] ?? ""),
-            filePath: perm.data["filePath"] as string | undefined,
-            command: perm.data["command"] as string | undefined,
-            timestamp: perm.timestamp,
-          }}
-          onApprove={() =>
-            approvePermission(String(perm.data["toolUseId"]))
-          }
-          onDeny={() =>
-            denyPermission(String(perm.data["toolUseId"]))
-          }
-        />
-      ))}
+      <VoicePanel
+        isRecording={voice.isRecording}
+        isProcessing={voice.isProcessing}
+        duration={voice.duration}
+        partialTranscript={voice.partialTranscript}
+        error={voice.error}
+        onStop={voice.stopRecording}
+        onCancel={voice.cancelRecording}
+      />
 
-      <PromptInput onSend={sendPrompt} disabled={!isConnected} />
+      <PromptInput
+        onSend={handleSend}
+        disabled={connectionState !== "connected"}
+      />
     </KeyboardAvoidingView>
   );
 }
