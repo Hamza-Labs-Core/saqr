@@ -9,15 +9,15 @@ import React, { useRef, useEffect } from "react";
 import { ScrollView, View, Text, StyleSheet, Pressable } from "react-native";
 import type {
   TimelineItem,
-  UserMessage,
-  AssistantMessage,
-  ThinkingBlock,
-  ToolCall,
-  PermissionRequest,
+  UserMessageType as UserMessage,
+  AssistantMessageType as AssistantMessage,
+  ThinkingBlockType as ThinkingBlock,
+  ToolCallType as ToolCall,
+  PermissionRequestType as PermissionRequest,
   ErrorItem,
-  SystemNotification,
-  CompactNotification,
-  UsageUpdate,
+  SystemNotificationType as SystemNotification,
+  CompactNotificationType as CompactNotification,
+  UsageUpdateType as UsageUpdate,
 } from "@saqr/terminal-ui";
 import {
   isUserMessage,
@@ -207,7 +207,7 @@ function ToolInputSummary({ item }: { item: ToolCall }) {
       summary = item.input.description ?? item.input.prompt.slice(0, 80);
       break;
     default:
-      summary = JSON.stringify(item.input).slice(0, 100);
+      summary = JSON.stringify((item as { input: unknown }).input).slice(0, 100);
   }
 
   return (

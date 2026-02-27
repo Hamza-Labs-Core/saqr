@@ -10,6 +10,55 @@
  */
 import { useState, useRef, useCallback, useEffect } from "react";
 
+// ---------------------------------------------------------------------------
+// Web Speech API — local type definitions
+// Defined here instead of relying on the DOM lib so that this file can be
+// type-checked by projects that don't include DOM (e.g. React Native).
+// ---------------------------------------------------------------------------
+
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  readonly [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  readonly [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionEventLike {
+  readonly results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  readonly error: string;
+}
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognitionInstance;
+}
+
+// ---------------------------------------------------------------------------
+
 export type VoiceState = "idle" | "recording" | "processing" | "error" | "unsupported";
 
 export interface UseVoiceOptions {
@@ -43,13 +92,13 @@ export interface UseVoiceResult {
 }
 
 /** Get the SpeechRecognition constructor, if available. */
-function getSpeechRecognition(): typeof SpeechRecognition | null {
+function getSpeechRecognition(): SpeechRecognitionConstructor | null {
   if (typeof window === "undefined") return null;
   return (
     (window as unknown as Record<string, unknown>).SpeechRecognition ??
     (window as unknown as Record<string, unknown>).webkitSpeechRecognition ??
     null
-  ) as typeof SpeechRecognition | null;
+  ) as SpeechRecognitionConstructor | null;
 }
 
 export function useVoice(options: UseVoiceOptions = {}): UseVoiceResult {
@@ -68,7 +117,7 @@ export function useVoice(options: UseVoiceOptions = {}): UseVoiceResult {
   const [finalTranscript, setFinalTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxDurationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onResultRef = useRef(onResult);
@@ -98,7 +147,7 @@ export function useVoice(options: UseVoiceOptions = {}): UseVoiceResult {
     recognition.continuous = true;
     recognition.maxAlternatives = 1;
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
       let interim = "";
       let final = "";
 
@@ -142,7 +191,7 @@ export function useVoice(options: UseVoiceOptions = {}): UseVoiceResult {
       }, 100);
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
       clearTimers();
       if (event.error === "aborted" || event.error === "no-speech") {
         setState("idle");

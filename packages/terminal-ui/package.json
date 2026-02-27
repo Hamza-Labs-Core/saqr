@@ -4,10 +4,10 @@
   "description": "Terminal-faithful UI components for rendering Claude Code sessions",
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./theme.css": "./src/theme.css"

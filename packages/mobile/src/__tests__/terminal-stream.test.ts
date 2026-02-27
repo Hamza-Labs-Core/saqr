@@ -2,7 +2,7 @@
  * Tests for the mobile terminal stream hook and helpers.
  */
 import { describe, it, expect } from "vitest";
-import type { TimelineItem } from "../../node_modules/@saqr/terminal-ui/src/types.js";
+import type { TimelineItem } from "@saqr/terminal-ui";
 
 // We test the pure functions extracted from use-terminal-stream.
 // The hook itself needs React, but the data logic is testable standalone.
@@ -33,15 +33,15 @@ function makeBase(type: string, seq: number, id?: string): Record<string, unknow
 
 describe("mergeItem", () => {
   it("adds new item to empty timeline", () => {
-    const item = { ...makeBase("user_message", 1), text: "hello", hasAttachments: false, attachments: [] } as TimelineItem;
+    const item = { ...makeBase("user_message", 1), text: "hello", hasAttachments: false, attachments: [] } as unknown as TimelineItem;
     const result = mergeItem([], item);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("item-1");
   });
 
   it("maintains sequence order", () => {
-    const item1 = { ...makeBase("user_message", 2), text: "second", hasAttachments: false, attachments: [] } as TimelineItem;
-    const item2 = { ...makeBase("user_message", 1, "item-0"), text: "first", hasAttachments: false, attachments: [] } as TimelineItem;
+    const item1 = { ...makeBase("user_message", 2), text: "second", hasAttachments: false, attachments: [] } as unknown as TimelineItem;
+    const item2 = { ...makeBase("user_message", 1, "item-0"), text: "first", hasAttachments: false, attachments: [] } as unknown as TimelineItem;
 
     let timeline = mergeItem([], item1);
     timeline = mergeItem(timeline, item2);
@@ -52,8 +52,8 @@ describe("mergeItem", () => {
   });
 
   it("updates existing item by id", () => {
-    const initial = { ...makeBase("assistant_message", 1), text: "partial...", streamingState: "streaming", hasMarkdown: false, model: "claude-4", outputTokens: null } as TimelineItem;
-    const updated = { ...makeBase("assistant_message", 1), text: "complete response", streamingState: "completed", hasMarkdown: false, model: "claude-4", outputTokens: 100 } as TimelineItem;
+    const initial = { ...makeBase("assistant_message", 1), text: "partial...", streamingState: "streaming", hasMarkdown: false, model: "claude-4", outputTokens: null } as unknown as TimelineItem;
+    const updated = { ...makeBase("assistant_message", 1), text: "complete response", streamingState: "completed", hasMarkdown: false, model: "claude-4", outputTokens: 100 } as unknown as TimelineItem;
 
     let timeline = mergeItem([], initial);
     timeline = mergeItem(timeline, updated);
