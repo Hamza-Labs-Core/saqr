@@ -3,12 +3,15 @@ import react from "@vitejs/plugin-react";
 import path from "node:path";
 
 export default defineConfig({
+  root: path.resolve(__dirname),
   plugins: [react()],
   resolve: {
     alias: {
+      "@saqr/terminal-ui/theme.css": path.resolve(__dirname, "../../terminal-ui/src/theme.css"),
       "@saqr/terminal-ui": path.resolve(__dirname, "../../terminal-ui/src/index.ts"),
       "@saqr/cli/types/timeline": path.resolve(__dirname, "../../cli/src/types/timeline.ts"),
       "@saqr/cli/theme": path.resolve(__dirname, "../../cli/src/theme/index.ts"),
+      "@saqr/cli/normalization": path.resolve(__dirname, "../../cli/src/normalization/index.ts"),
       "@saqr/shared": path.resolve(__dirname, "../../shared/src/index.ts"),
     },
   },

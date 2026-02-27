@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "dev.saqr.desktop",
   "build": {
-    "beforeBuildCommand": "pnpm vite build --config frontend/vite.config.ts --outDir frontend/dist",
+    "beforeBuildCommand": "pnpm vite build --config frontend/vite.config.ts",
     "beforeDevCommand": "pnpm vite --config frontend/vite.config.ts",
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173"
