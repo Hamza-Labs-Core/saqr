@@ -21,9 +21,21 @@ describe("Package Exports", () => {
     expect(terminalUi.UsageUpdate).toBeDefined();
   });
 
+  it("exports ToolCall sub-variant components", () => {
+    expect(terminalUi.ReadTool).toBeDefined();
+    expect(terminalUi.EditTool).toBeDefined();
+    expect(terminalUi.WriteTool).toBeDefined();
+    expect(terminalUi.BashTool).toBeDefined();
+    expect(terminalUi.GlobTool).toBeDefined();
+    expect(terminalUi.GrepTool).toBeDefined();
+    expect(terminalUi.WebFetchTool).toBeDefined();
+    expect(terminalUi.TaskTool).toBeDefined();
+  });
+
   it("exports hooks", () => {
     expect(terminalUi.useSession).toBeDefined();
     expect(terminalUi.useTimeline).toBeDefined();
+    expect(terminalUi.useVoice).toBeDefined();
   });
 
   it("exports theme utilities", () => {
@@ -31,6 +43,18 @@ describe("Package Exports", () => {
     expect(terminalUi.syntaxThemeToCssVars).toBeDefined();
     expect(terminalUi.themeToCssVars).toBeDefined();
     expect(terminalUi.getToolColorVar).toBeDefined();
+  });
+
+  it("exports normalization utilities", () => {
+    expect(terminalUi.normalizeGCEvent).toBeDefined();
+    expect(terminalUi.normalizeSDKEvent).toBeDefined();
+    expect(terminalUi.mergeIntoTimeline).toBeDefined();
+  });
+
+  it("exports syntax highlighting utilities", () => {
+    expect(terminalUi.detectLanguage).toBeDefined();
+    expect(terminalUi.tokenize).toBeDefined();
+    expect(terminalUi.tokenTypeToCssVar).toBeDefined();
   });
 
   it("exports type guards", () => {

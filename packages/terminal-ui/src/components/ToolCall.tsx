@@ -1,11 +1,19 @@
 /**
  * ToolCall — renders a tool call with sub-variant based on toolName.
  *
- * Each tool gets its own dedicated rendering: file content, diff view,
- * bash output, file list, search results, etc.
+ * Each tool gets its own dedicated sub-component for output rendering.
+ * The header chrome and error display are shared.
  */
 import type { ToolCall as ToolCallType } from "../types.js";
 import { getToolColorVar } from "../theme.js";
+import { ReadTool } from "./ReadTool.js";
+import { EditTool } from "./EditTool.js";
+import { WriteTool } from "./WriteTool.js";
+import { BashTool } from "./BashTool.js";
+import { GlobTool } from "./GlobTool.js";
+import { GrepTool } from "./GrepTool.js";
+import { WebFetchTool } from "./WebFetchTool.js";
+import { TaskTool } from "./TaskTool.js";
 
 export interface ToolCallProps {
   item: ToolCallType;
@@ -44,7 +52,7 @@ export function ToolCall({ item }: ToolCallProps) {
         </span>
       </div>
 
-      {/* Body — sub-variant rendering */}
+      {/* Body — delegates to per-tool sub-component */}
       {item.status !== "pending" && (
         <div style={{
           padding: "var(--saqr-space-sm) var(--saqr-space-md)",
@@ -98,160 +106,25 @@ function ToolSummary({ item }: { item: ToolCallType }) {
   }
 }
 
-/** Tool-specific output rendering. */
+/** Delegates to the appropriate per-tool sub-component. */
 function ToolBody({ item }: { item: ToolCallType }) {
   switch (item.toolName) {
     case "Read":
-      if (!item.output) return null;
-      return (
-        <div>
-          {item.output.lineCount !== null && (
-            <div style={{ color: "var(--saqr-muted)", marginBottom: "4px" }}>
-              {item.output.lineCount} lines{item.output.language ? ` (${item.output.language})` : ""}
-            </div>
-          )}
-          {item.output.content && (
-            <pre style={{
-              background: "var(--saqr-code-block-bg)",
-              padding: "var(--saqr-space-sm)",
-              borderRadius: "4px",
-              overflow: "auto",
-              maxHeight: "300px",
-              margin: 0,
-              whiteSpace: "pre-wrap",
-              fontSize: "var(--saqr-font-sm)",
-            }}>
-              {item.output.content}
-            </pre>
-          )}
-        </div>
-      );
-
+      return <ReadTool item={item} />;
     case "Edit":
-      if (!item.output) return null;
-      return (
-        <pre style={{
-          background: "var(--saqr-code-block-bg)",
-          padding: "var(--saqr-space-sm)",
-          borderRadius: "4px",
-          overflow: "auto",
-          maxHeight: "300px",
-          margin: 0,
-          whiteSpace: "pre-wrap",
-          fontSize: "var(--saqr-font-sm)",
-        }}>
-          {item.output.diff ?? `Edit applied to ${item.input.filePath}`}
-        </pre>
-      );
-
+      return <EditTool item={item} />;
     case "Write":
-      if (!item.output) return null;
-      return (
-        <div style={{ color: "var(--saqr-success)" }}>
-          Wrote {item.output.bytesWritten} bytes
-          {item.output.language ? ` (${item.output.language})` : ""}
-        </div>
-      );
-
+      return <WriteTool item={item} />;
     case "Bash":
-      if (!item.output) return null;
-      return (
-        <div>
-          <pre style={{
-            background: "var(--saqr-code-block-bg)",
-            padding: "var(--saqr-space-sm)",
-            borderRadius: "4px",
-            overflow: "auto",
-            maxHeight: "300px",
-            margin: 0,
-            whiteSpace: "pre-wrap",
-            fontSize: "var(--saqr-font-sm)",
-          }}>
-            {item.output.stdout ?? ""}
-            {item.output.stderr ? `\n${item.output.stderr}` : ""}
-          </pre>
-          {item.output.exitCode !== null && item.output.exitCode !== 0 && (
-            <div style={{ color: "var(--saqr-error)", marginTop: "4px" }}>
-              Exit code: {item.output.exitCode}
-            </div>
-          )}
-        </div>
-      );
-
+      return <BashTool item={item} />;
     case "Glob":
-      if (!item.output) return null;
-      return (
-        <div>
-          <div style={{ color: "var(--saqr-muted)", marginBottom: "4px" }}>
-            {item.output.matchCount} match{item.output.matchCount !== 1 ? "es" : ""}
-          </div>
-          <div style={{ maxHeight: "200px", overflow: "auto" }}>
-            {item.output.matches.slice(0, 20).map((m, i) => (
-              <div key={i} style={{ color: "var(--saqr-text-secondary)" }}>{m}</div>
-            ))}
-            {item.output.matches.length > 20 && (
-              <div style={{ color: "var(--saqr-muted)" }}>
-                ...and {item.output.matches.length - 20} more
-              </div>
-            )}
-          </div>
-        </div>
-      );
-
+      return <GlobTool item={item} />;
     case "Grep":
-      if (!item.output) return null;
-      return (
-        <div>
-          <div style={{ color: "var(--saqr-muted)", marginBottom: "4px" }}>
-            {item.output.matchCount} match{item.output.matchCount !== 1 ? "es" : ""}
-          </div>
-          <div style={{ maxHeight: "200px", overflow: "auto" }}>
-            {item.output.matches.slice(0, 10).map((m, i) => (
-              <div key={i} style={{ borderBottom: "1px solid var(--saqr-border)", padding: "2px 0" }}>
-                <span style={{ color: "var(--saqr-info)" }}>{m.file}:{m.line}</span>
-                <span style={{ color: "var(--saqr-text-secondary)", marginLeft: "8px" }}>{m.content}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-
+      return <GrepTool item={item} />;
     case "WebFetch":
-      if (!item.output) return null;
-      return (
-        <div>
-          {item.output.statusCode !== null && (
-            <div style={{
-              color: item.output.statusCode < 400 ? "var(--saqr-success)" : "var(--saqr-error)",
-              marginBottom: "4px",
-            }}>
-              HTTP {item.output.statusCode}
-            </div>
-          )}
-          {item.output.summary && (
-            <div style={{ color: "var(--saqr-text-secondary)", whiteSpace: "pre-wrap" }}>
-              {item.output.summary}
-            </div>
-          )}
-        </div>
-      );
-
+      return <WebFetchTool item={item} />;
     case "Task":
-      if (!item.output) return null;
-      return (
-        <div style={{
-          background: "var(--saqr-task-nesting)",
-          padding: "var(--saqr-space-sm)",
-          borderRadius: "4px",
-        }}>
-          {item.output.result && (
-            <div style={{ color: "var(--saqr-text-secondary)", whiteSpace: "pre-wrap" }}>
-              {item.output.result}
-            </div>
-          )}
-        </div>
-      );
-
+      return <TaskTool item={item} />;
     default:
       return null;
   }

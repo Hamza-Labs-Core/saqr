@@ -14,6 +14,8 @@ export type Route =
  * - #/login       → Device-code auth
  * - #/servers     → Server list (default when authenticated)
  * - #/terminal/:serverId/:sessionId → Terminal view
+ *
+ * Also handles saqr://auth/callback?token=... deep link via URL query params.
  */
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -25,6 +27,27 @@ function parseHash(): Route {
   }
   if (hash === "login") return { page: "login" };
   return { page: "servers" };
+}
+
+/**
+ * Check for deep link auth callback token in URL query params.
+ * Tauri translates saqr://auth/callback?token=XYZ into the webview URL.
+ */
+function checkDeepLinkAuth(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    if (token) {
+      // Clean the URL to remove the token from the address bar
+      const url = new URL(window.location.href);
+      url.searchParams.delete("token");
+      window.history.replaceState({}, "", url.toString());
+      return token;
+    }
+  } catch {
+    // Not in a browser context
+  }
+  return null;
 }
 
 export function navigate(route: Route): void {
@@ -48,6 +71,15 @@ export function App(): React.ReactElement {
     const onHashChange = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  // Handle deep link auth callback (saqr://auth/callback?token=...)
+  useEffect(() => {
+    const deepLinkToken = checkDeepLinkAuth();
+    if (deepLinkToken) {
+      storeToken(deepLinkToken);
+      navigate({ page: "servers" });
+    }
   }, []);
 
   // Check auth state on mount

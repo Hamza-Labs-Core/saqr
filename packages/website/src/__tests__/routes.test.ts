@@ -11,6 +11,7 @@ const EXPECTED_ROUTES = [
   '_index.tsx',
   'auth.login.tsx',
   'auth.register.tsx',
+  'auth.verify.tsx',
   'auth.device.tsx',
   'downloads.tsx',
   'dashboard.tsx',
@@ -33,5 +34,13 @@ describe('Website Routes', () => {
 
   it('has global CSS', () => {
     expect(existsSync(resolve(ROUTES_DIR, '../app.css'))).toBe(true);
+  });
+
+  it('has server entry', () => {
+    expect(existsSync(resolve(ROUTES_DIR, '../entry.server.tsx'))).toBe(true);
+  });
+
+  it('has client entry', () => {
+    expect(existsSync(resolve(ROUTES_DIR, '../entry.client.tsx'))).toBe(true);
   });
 });
