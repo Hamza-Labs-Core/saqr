@@ -535,8 +535,12 @@ jobs:
         id: deploy-sync
         working-directory: packages/sync-server
         run: |
+          set +e
           OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
           echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-sync-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:
@@ -547,8 +551,12 @@ jobs:
         id: deploy-admin
         working-directory: packages/admin-server
         run: |
+          set +e
           OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
           echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-admin-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:
@@ -632,8 +640,12 @@ jobs:
         id: deploy
         working-directory: packages/mobile
         run: |
+          set +e
           OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
           echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-web-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:
@@ -706,8 +718,12 @@ jobs:
         id: deploy
         working-directory: packages/website
         run: |
+          set +e
           OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
           echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-website-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:

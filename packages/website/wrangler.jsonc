@@ -6,14 +6,18 @@
   "assets": {
     "directory": "./build/client"
   },
-  "main": "./build/server/index.js",
+  "main": "./worker-entry.js",
   "vars": {
     "SYNC_SERVER_URL": "https://sync.saqr.dev",
     "ADMIN_SERVER_URL": "https://admin.saqr.dev"
   },
   "env": {
     "preview": {
-      "name": "saqr-website-preview"
+      "name": "saqr-website-preview",
+      "vars": {
+        "SYNC_SERVER_URL": "https://saqr-sync-preview.workers.dev",
+        "ADMIN_SERVER_URL": "https://saqr-admin-preview.workers.dev"
+      }
     }
   }
 }
