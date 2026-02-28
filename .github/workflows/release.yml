@@ -33,7 +33,6 @@ jobs:
   build-mobile-android:
     name: Build Android APK
     needs: version
-    if: ${{ vars.ENABLE_MOBILE_BUILD == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -88,7 +87,6 @@ jobs:
   build-mobile-ios:
     name: Build iOS (Release)
     needs: version
-    if: ${{ vars.ENABLE_MOBILE_BUILD == 'true' }}
     runs-on: macos-latest
     permissions:
       contents: read
@@ -141,7 +139,6 @@ jobs:
   build-desktop-macos:
     name: Build Desktop (macOS)
     needs: version
-    if: ${{ vars.ENABLE_DESKTOP_BUILD == 'true' }}
     runs-on: macos-latest
     permissions:
       contents: read
@@ -204,7 +201,6 @@ jobs:
   build-desktop-windows:
     name: Build Desktop (Windows)
     needs: version
-    if: ${{ vars.ENABLE_DESKTOP_BUILD == 'true' }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -261,7 +257,6 @@ jobs:
   build-desktop-linux:
     name: Build Desktop (Linux)
     needs: version
-    if: ${{ vars.ENABLE_DESKTOP_BUILD == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -330,7 +325,6 @@ jobs:
   deploy-web:
     name: Deploy Web (Cloudflare Workers)
     needs: version
-    if: ${{ vars.ENABLE_WEB_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -367,7 +361,6 @@ jobs:
   deploy-servers:
     name: Deploy Servers (production)
     needs: version
-    if: ${{ vars.ENABLE_WRANGLER_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -403,7 +396,6 @@ jobs:
   deploy-website:
     name: Deploy Website (production)
     needs: version
-    if: ${{ vars.ENABLE_WEBSITE_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -436,7 +428,6 @@ jobs:
   build-nest-macos:
     name: Build SaqrNest (macOS)
     needs: version
-    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
     runs-on: macos-latest
     permissions:
       contents: read
@@ -475,7 +466,6 @@ jobs:
   build-nest-windows:
     name: Build SaqrNest (Windows)
     needs: version
-    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -513,7 +503,6 @@ jobs:
   build-nest-linux:
     name: Build SaqrNest (Linux)
     needs: version
-    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

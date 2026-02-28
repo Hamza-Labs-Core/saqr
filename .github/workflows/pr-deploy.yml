@@ -34,7 +34,6 @@ jobs:
   build-mobile-android:
     name: Build Android APK (preview)
     needs: version
-    if: ${{ vars.ENABLE_MOBILE_BUILD == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -89,7 +88,6 @@ jobs:
   build-mobile-ios:
     name: Build iOS Simulator (preview)
     needs: version
-    if: ${{ vars.ENABLE_MOBILE_BUILD == 'true' }}
     runs-on: macos-latest
     permissions:
       contents: read
@@ -204,7 +202,6 @@ jobs:
   build-desktop-macos:
     name: Build Desktop (macOS preview)
     needs: version
-    if: ${{ vars.ENABLE_DESKTOP_BUILD == 'true' }}
     runs-on: macos-latest
     permissions:
       contents: read
@@ -264,7 +261,6 @@ jobs:
   build-desktop-windows:
     name: Build Desktop (Windows preview)
     needs: version
-    if: ${{ vars.ENABLE_DESKTOP_BUILD == 'true' }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -324,7 +320,6 @@ jobs:
   build-desktop-linux:
     name: Build Desktop (Linux preview)
     needs: version
-    if: ${{ vars.ENABLE_DESKTOP_BUILD == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -395,7 +390,6 @@ jobs:
   build-nest-macos:
     name: Build SaqrNest (macOS preview)
     needs: version
-    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
     runs-on: macos-latest
     permissions:
       contents: read
@@ -434,7 +428,6 @@ jobs:
   build-nest-windows:
     name: Build SaqrNest (Windows preview)
     needs: version
-    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -472,7 +465,6 @@ jobs:
   build-nest-linux:
     name: Build SaqrNest (Linux preview)
     needs: version
-    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -513,7 +505,6 @@ jobs:
   deploy-servers-preview:
     name: Deploy Servers (preview)
     needs: version
-    if: ${{ vars.ENABLE_WRANGLER_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -606,7 +597,6 @@ jobs:
   deploy-web-preview:
     name: Deploy Web (preview)
     needs: version
-    if: ${{ vars.ENABLE_WEB_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -691,7 +681,6 @@ jobs:
   deploy-website-preview:
     name: Deploy Website (preview)
     needs: version
-    if: ${{ vars.ENABLE_WEBSITE_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
