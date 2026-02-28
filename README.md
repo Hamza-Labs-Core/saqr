@@ -1,26 +1,35 @@
-# Saqr صقر
+<p align="center">
+  <img src="assets/Logolite.png" alt="Saqr" width="400" />
+</p>
 
-> Agent management platform by [Hamza Labs](https://github.com/Hamza-Labs-Core)
+<h1 align="center">Saqr صقر</h1>
 
-Orchestrate, observe, and control AI coding agents from anywhere — terminal, desktop, or phone. Zero-knowledge encrypted sync across machines.
+<p align="center">
+  <strong>Agent management platform by <a href="https://github.com/Hamza-Labs-Core">Hamza Labs</a></strong><br/>
+  Orchestrate, observe, and control AI coding agents from anywhere — terminal, desktop, or phone.<br/>
+  Zero-knowledge encrypted sync across machines.
+</p>
 
 ## Packages
 
 | Package | Description | Tests |
 |---------|-------------|-------|
-| `shared` | Event types, discriminated unions, sync protocol | 88 |
-| `gc-core` | Event store foundation (bash+jq write, Node.js projections read) | 36 |
-| `daemon` | AgentContext daemon — hooks, orchestration, security, codeguard | 757 |
-| `sync-client` | E2EE push/pull sync (XChaCha20-Poly1305, Argon2id key recovery) | 107 |
-| `sync-server` | Cloudflare Workers + Durable Objects — auth, sync, GDPR, telemetry | 317 |
+| `shared` | Event types, discriminated unions, sync protocol | 101 |
+| `gc-core` | Event store foundation (bash+jq write, Node.js projections read) | 29 |
+| `daemon` | AgentContext daemon — hooks, orchestration, security, codeguard | 774 |
+| `sync-client` | E2EE push/pull sync (XChaCha20-Poly1305, Argon2id key recovery) | 135 |
+| `sync-server` | Cloudflare Workers + Durable Objects — auth, sync, GDPR, telemetry | 331 |
 | `admin-server` | Cloudflare Workers admin API — curated rules, user management | 31 |
 | `dashboard` | Local web dashboard with SSE streaming | 109 |
 | `cli` | `saqr` CLI — session rendering, themes, timeline | 260 |
-| `mobile` | React Native / Expo data layer, voice input, offline sync | 269 |
-| `desktop` | Tauri 2 IPC bridge, tray, notifications, secure key storage | 225 |
+| `terminal-ui` | Terminal-faithful UI components for rendering agent sessions | 79 |
+| `mobile` | React Native / Expo — voice input, offline sync, web + native | 327 |
+| `desktop` | Tauri 2 IPC bridge, tray, notifications, secure key storage | 237 |
 | `github` | GitHub App integration — webhooks, PRs, issues, repo browser | 147 |
+| `website` | Marketing site — React Router v7 SSR on Cloudflare Workers | 27 |
+| `installer` | SaqrNest standalone server builders (macOS .pkg, Linux .deb, Windows SEA) | 8 |
 
-**2,346 tests** across 11 packages (2,310 TypeScript + 36 bash).
+**2,595 tests** across 14 packages.
 
 ## Architecture
 
@@ -51,6 +60,27 @@ You (phone / desktop / web)
 │  node read   │   TS daemon = read-side)
 └──────────────┘
 ```
+
+## CI/CD
+
+Every push triggers the full pipeline — no feature flags, everything builds:
+
+- **PR Deploy** — prerelease builds + preview deploys on every PR
+- **Release** — production builds + deploys on merge to `main`
+
+| Target | Artifacts |
+|--------|-----------|
+| Android | `.apk` |
+| iOS Simulator | `.ipa` |
+| macOS Desktop | `.dmg` |
+| Windows Desktop | `.exe` (NSIS) |
+| Linux Desktop | `.AppImage` `.deb` |
+| SaqrNest macOS | `.pkg` |
+| SaqrNest Windows | `.exe` (SEA) |
+| SaqrNest Linux | `.deb` |
+| Servers | Cloudflare Workers (sync, admin) |
+| Web Client | Cloudflare Workers (Expo web) |
+| Website | Cloudflare Workers (React Router SSR) |
 
 ## Key Technical Decisions
 
@@ -88,8 +118,9 @@ All 15 stories implemented:
 
 ```bash
 pnpm install
+pnpm test                           # run all tests
 pnpm --filter <package> run test    # run tests for a package
-pnpm --filter daemon run test       # example: daemon (757 tests)
+pnpm --filter daemon run test       # example: daemon (774 tests)
 ```
 
 ## Acknowledgements
