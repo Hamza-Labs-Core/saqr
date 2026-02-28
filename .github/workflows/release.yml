@@ -73,15 +73,14 @@ jobs:
 
       - name: Rename APK artifact
         run: |
-          VERSION="${{ needs.version.outputs.version }}"
           APK_PATH=$(find packages/mobile/android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          cp "$APK_PATH" "saqr-v${VERSION}-android.apk"
+          cp "$APK_PATH" Saqr.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: saqr-v${{ needs.version.outputs.version }}-android.apk
+          path: Saqr.apk
           retention-days: 5
 
   # ─── Mobile iOS Build ────────────────────────────────────────────────
@@ -122,18 +121,19 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
 
-      - name: Package iOS simulator app
+      - name: Package iOS .ipa
         run: |
-          VERSION="${{ needs.version.outputs.version }}"
           APP_PATH=$(find packages/mobile/ios/build/Build/Products/Release-iphonesimulator -name "*.app" -maxdepth 1 | head -1)
-          cd "$(dirname "$APP_PATH")"
-          tar czf "saqr-v${VERSION}-ios-simulator.app.tar.gz" "$(basename "$APP_PATH")"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          cd Payload && zip -r ../Saqr.ipa . && cd ..
+          rm -rf Payload
 
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator
-          path: packages/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app.tar.gz
+          name: ios-release
+          path: Saqr.ipa
           retention-days: 5
 
   # ─── Desktop Builds (Tauri) ─────────────────────────────────────────
@@ -189,14 +189,16 @@ jobs:
           tagName: ""
           releaseName: ""
 
+      - name: Rename macOS client
+        run: |
+          DMG=$(find packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          cp "$DMG" Saqr.dmg
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-macos
-          path: |
-            packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
-            packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+          path: Saqr.dmg
           retention-days: 5
 
   build-desktop-windows:
@@ -243,13 +245,17 @@ jobs:
           tagName: ""
           releaseName: ""
 
+      - name: Rename Windows client
+        shell: bash
+        run: |
+          EXE=$(find packages/desktop/src-tauri/target/release/bundle/nsis -name "*.exe" | head -1)
+          cp "$EXE" Saqr.exe
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
-          path: |
-            packages/desktop/src-tauri/target/release/bundle/nsis/*.exe
-            packages/desktop/src-tauri/target/release/bundle/msi/*.msi
+          path: Saqr.exe
           retention-days: 5
 
   build-desktop-linux:
@@ -305,13 +311,18 @@ jobs:
           tagName: ""
           releaseName: ""
 
+      - name: Rename Linux client
+        run: |
+          cp packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage Saqr.AppImage
+          cp packages/desktop/src-tauri/target/release/bundle/deb/*.deb Saqr.deb
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-linux
           path: |
-            packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-            packages/desktop/src-tauri/target/release/bundle/deb/*.deb
+            Saqr.AppImage
+            Saqr.deb
           retention-days: 5
 
   # ─── Web Deploy (Expo Web → Cloudflare Workers) ────────────────────
@@ -420,13 +431,52 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ─── Standalone Installer Build ───────────────────────────────────
+  # ─── SaqrNest Server Builds ────────────────────────────────────────
 
-  build-installer-linux:
-    name: Build Installer (Linux)
+  build-nest-macos:
+    name: Build SaqrNest (macOS)
     needs: version
     if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS .pkg
+        working-directory: packages/installer
+        run: bash scripts/build-macos.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to SaqrNest.pkg
+        run: |
+          PKG=$(find packages/installer/dist -name "*.pkg" | head -1)
+          cp "$PKG" SaqrNest.pkg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-macos
+          path: SaqrNest.pkg
+          retention-days: 5
+
+  build-nest-windows:
+    name: Build SaqrNest (Windows)
+    needs: version
+    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
+    runs-on: windows-latest
     permissions:
       contents: read
     timeout-minutes: 20
@@ -449,19 +499,54 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Create tar.gz
-        working-directory: packages/installer
-        run: |
-          VERSION="${{ needs.version.outputs.version }}"
-          mkdir -p dist/saqr-v${VERSION}-linux-amd64
-          cp dist/saqr dist/saqr-v${VERSION}-linux-amd64/
-          tar -czf dist/saqr-v${VERSION}-linux-amd64.tar.gz -C dist saqr-v${VERSION}-linux-amd64
+      - name: Rename to SaqrNest.exe
+        shell: bash
+        run: cp packages/installer/dist/saqr.exe SaqrNest.exe
 
-      - name: Upload installer artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: installer-linux
-          path: packages/installer/dist/saqr-v${{ needs.version.outputs.version }}-linux-amd64.tar.gz
+          name: nest-windows
+          path: SaqrNest.exe
+          retention-days: 5
+
+  build-nest-linux:
+    name: Build SaqrNest (Linux)
+    needs: version
+    if: ${{ vars.ENABLE_INSTALLER_BUILD == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux .deb
+        working-directory: packages/installer
+        run: bash scripts/build-linux.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to SaqrNest.deb
+        run: |
+          DEB=$(find packages/installer/dist -name "*.deb" | head -1)
+          cp "$DEB" SaqrNest.deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-linux
+          path: SaqrNest.deb
           retention-days: 5
 
   # ─── Release (Changelog + Tag + GitHub Release + Assets) ────────────
@@ -478,7 +563,9 @@ jobs:
       - deploy-web
       - deploy-servers
       - deploy-website
-      - build-installer-linux
+      - build-nest-macos
+      - build-nest-windows
+      - build-nest-linux
     if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:
@@ -560,15 +647,15 @@ jobs:
             while IFS= read -r file; do
               ASSETS+=("$file")
             done < <(find release-assets -type f \( \
-              -name "*.apk" -o \
-              -name "*.dmg" -o \
-              -name "*.app.tar.gz" -o \
-              -name "*.app.tar.gz.sig" -o \
-              -name "*.exe" -o \
-              -name "*.msi" -o \
-              -name "*.AppImage" -o \
-              -name "*.deb" -o \
-              -name "latest.json" \
+              -name "Saqr.dmg" -o \
+              -name "Saqr.exe" -o \
+              -name "Saqr.AppImage" -o \
+              -name "Saqr.deb" -o \
+              -name "Saqr.apk" -o \
+              -name "Saqr.ipa" -o \
+              -name "SaqrNest.pkg" -o \
+              -name "SaqrNest.exe" -o \
+              -name "SaqrNest.deb" \
             \))
           fi
 
