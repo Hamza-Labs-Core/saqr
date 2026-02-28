@@ -70,6 +70,22 @@ describe("generateLaunchDaemonPlist", () => {
   });
 });
 
+describe("build-sea.js", () => {
+  it("bundles with CJS format (SEA requires CommonJS)", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const script = readFileSync(
+      resolve(__dirname, "../scripts/build-sea.js"),
+      "utf-8",
+    );
+    // SEA blobs cannot use ESM — Node.js loads them as scripts, not modules.
+    // --format=esm would produce `import` statements that cause:
+    //   "SyntaxError: Cannot use import statement outside a module"
+    expect(script).toContain("--format=cjs");
+    expect(script).not.toMatch(/--format=esm/);
+  });
+});
+
 describe("generateDebianControl", () => {
   it("generates valid control file", () => {
     const control = generateDebianControl("0.1.0", "amd64");

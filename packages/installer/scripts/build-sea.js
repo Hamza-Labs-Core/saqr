@@ -42,7 +42,7 @@ async function main() {
   const bundlePath = resolve(DIST, "saqr-bundle.js");
 
   console.log("Bundling with esbuild...");
-  run(`npx esbuild "${entryPoint}" --bundle --platform=node --target=node20 --format=esm --outfile="${bundlePath}" --external:fsevents`);
+  run(`npx esbuild "${entryPoint}" --bundle --platform=node --target=node20 --format=cjs --outfile="${bundlePath}" --external:fsevents`);
 
   // 3. Generate SEA config
   const seaConfig = {
