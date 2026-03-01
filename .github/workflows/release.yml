@@ -649,7 +649,7 @@ jobs:
           fi
 
           # Build the gh release create command
-          CMD=(gh release create "$VERSION" --title "$VERSION" --notes-file changelog.txt)
+          CMD=(gh release create "$VERSION" --title "$VERSION" --notes-file changelog.txt --exclude-source-archives)
           for asset in "${ASSETS[@]}"; do
             CMD+=("$asset")
           done

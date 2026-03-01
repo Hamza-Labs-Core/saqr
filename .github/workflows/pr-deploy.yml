@@ -770,7 +770,7 @@ jobs:
           echo "Assets found: ${#ASSETS[@]}"
           printf '  %s\n' "${ASSETS[@]}"
 
-          CMD=(gh release create "$VERSION" --prerelease --title "$VERSION" --generate-notes)
+          CMD=(gh release create "$VERSION" --prerelease --title "$VERSION" --generate-notes --exclude-source-archives)
           for asset in "${ASSETS[@]}"; do
             CMD+=("$asset")
           done
