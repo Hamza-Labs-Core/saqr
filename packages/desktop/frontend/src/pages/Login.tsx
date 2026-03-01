@@ -12,7 +12,7 @@ interface DeviceCodeState {
   interval: number;
 }
 
-const SYNC_SERVER = "https://sync.saqr.dev";
+const SYNC_SERVER = import.meta.env.VITE_SYNC_SERVER || "https://sync.saqr.dev";
 
 /**
  * Device-code login page.
