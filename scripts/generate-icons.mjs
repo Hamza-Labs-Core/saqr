@@ -27,7 +27,11 @@ function ensureDir(dir) {
 }
 
 async function resize(size) {
-  return sharp(src).resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+  return sharp(src)
+    .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .ensureAlpha()
+    .png()
+    .toBuffer();
 }
 
 async function main() {

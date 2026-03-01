@@ -481,7 +481,10 @@ jobs:
           cache: pnpm
 
       - name: Install NSIS
-        run: choco install nsis -y
+        shell: bash
+        run: |
+          choco install nsis -y
+          echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
