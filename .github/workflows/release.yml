@@ -480,6 +480,9 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Install NSIS
+        run: choco install nsis -y
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -489,15 +492,21 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Rename to SaqrNest.exe
+      - name: Build NSIS installer
         shell: bash
-        run: cp packages/installer/dist/saqr.exe SaqrNest.exe
+        run: bash packages/installer/scripts/build-windows.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to SaqrNest-setup.exe
+        shell: bash
+        run: cp packages/installer/dist/SaqrNest-setup.exe SaqrNest-setup.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nest-windows
-          path: SaqrNest.exe
+          path: SaqrNest-setup.exe
           retention-days: 5
 
   build-nest-linux:
@@ -643,7 +652,7 @@ jobs:
               -name "Saqr.apk" -o \
               -name "Saqr.ipa" -o \
               -name "SaqrNest.pkg" -o \
-              -name "SaqrNest.exe" -o \
+              -name "SaqrNest-setup.exe" -o \
               -name "SaqrNest.deb" \
             \))
           fi

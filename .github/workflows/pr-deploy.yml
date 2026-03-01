@@ -155,7 +155,7 @@ jobs:
 
             const rows = [
               ['macOS (arm64)', '${{ needs.build-desktop-macos.result }}', '.dmg', '${{ needs.build-nest-macos.result }}', '.pkg'],
-              ['Windows (x64)', '${{ needs.build-desktop-windows.result }}', '.exe', '${{ needs.build-nest-windows.result }}', '.exe'],
+              ['Windows (x64)', '${{ needs.build-desktop-windows.result }}', '.exe', '${{ needs.build-nest-windows.result }}', '.exe installer'],
               ['Linux (amd64)', '${{ needs.build-desktop-linux.result }}', '.AppImage .deb', '${{ needs.build-nest-linux.result }}', '.deb'],
               ['Android', '${{ needs.build-mobile-android.result }}', '.apk', 'n/a', '—'],
               ['iOS', '${{ needs.build-mobile-ios.result }}', '.ipa', 'n/a', '—'],
@@ -442,6 +442,9 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Install NSIS
+        run: choco install nsis -y
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -451,15 +454,21 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Rename to SaqrNest.exe
+      - name: Build NSIS installer
         shell: bash
-        run: cp packages/installer/dist/saqr.exe SaqrNest.exe
+        run: bash packages/installer/scripts/build-windows.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to SaqrNest-setup.exe
+        shell: bash
+        run: cp packages/installer/dist/SaqrNest-setup.exe SaqrNest-setup.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nest-windows-preview
-          path: SaqrNest.exe
+          path: SaqrNest-setup.exe
           retention-days: 5
 
   build-nest-linux:
@@ -762,7 +771,7 @@ jobs:
               -name "Saqr.apk" -o \
               -name "Saqr.ipa" -o \
               -name "SaqrNest.pkg" -o \
-              -name "SaqrNest.exe" -o \
+              -name "SaqrNest-setup.exe" -o \
               -name "SaqrNest.deb" \
             \))
           fi

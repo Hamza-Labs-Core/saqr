@@ -16,5 +16,9 @@
     "lint": "pnpm -r --filter='./packages/*' run lint",
     "typecheck": "pnpm -r --filter='./packages/*' run typecheck",
     "clean": "pnpm -r --filter='./packages/*' run clean"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5",
+    "to-ico": "^1.1.5"
   }
 }
