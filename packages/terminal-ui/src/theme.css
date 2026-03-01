@@ -1,0 +1,152 @@
+/**
+ * Saqr Terminal UI — CSS Custom Properties from CLI Theme Tokens.
+ *
+ * Maps the 46+ ThemeColors and 16 SyntaxTheme tokens from @saqr/cli
+ * to CSS custom properties for use in all rendering contexts:
+ * browser, Tauri WebView, and React Native Web.
+ */
+
+/* Dark Theme (default) */
+:root,
+[data-theme="dark"] {
+  /* Background & Surface */
+  --saqr-bg: #0D1117;
+  --saqr-surface: #161B22;
+  --saqr-card-bg: #1C1F2E;
+  --saqr-footer-bg: #0D1117;
+
+  /* Text */
+  --saqr-text-primary: #C9D1D9;
+  --saqr-text-secondary: #8B949E;
+  --saqr-muted: #6E7681;
+
+  /* Chat Bubbles */
+  --saqr-user-bubble: #2A2D3E;
+  --saqr-user-text: #E6EDF3;
+  --saqr-assistant-bubble: #1A1D2E;
+  --saqr-assistant-text: #C9D1D9;
+
+  /* Status */
+  --saqr-success: #34D399;
+  --saqr-warning: #FBBF24;
+  --saqr-error: #EF4444;
+  --saqr-info: #60A5FA;
+
+  /* Tool Colors */
+  --saqr-tool-read: #60A5FA;
+  --saqr-tool-edit: #FBBF24;
+  --saqr-tool-write: #34D399;
+  --saqr-tool-bash: #A78BFA;
+  --saqr-tool-search: #F472B6;
+  --saqr-tool-webfetch: #38BDF8;
+  --saqr-tool-task: #FB923C;
+
+  /* Block Backgrounds */
+  --saqr-thinking-bg: #1E1E2E;
+  --saqr-thinking-text: #8B949E;
+  --saqr-permission-bg: #2E2A1A;
+  --saqr-error-bg: #2E1A1A;
+  --saqr-code-block-bg: #161B22;
+
+  /* Diff */
+  --saqr-diff-added-bg: #1A3A2A;
+  --saqr-diff-removed-bg: #3A1A1A;
+
+  /* Misc */
+  --saqr-table-row-alt: #161B22;
+  --saqr-task-nesting: rgba(251, 146, 60, 0.3);
+  --saqr-scrubber-bg: #161B22;
+  --saqr-search-highlight: #FBBF24;
+  --saqr-border: #30363D;
+  --saqr-border-active: #58A6FF;
+
+  /* Syntax Highlighting */
+  --saqr-syn-keyword: #FF7B72;
+  --saqr-syn-string: #A5D6FF;
+  --saqr-syn-number: #79C0FF;
+  --saqr-syn-comment: #8B949E;
+  --saqr-syn-function: #D2A8FF;
+  --saqr-syn-variable: #FFA657;
+  --saqr-syn-type: #79C0FF;
+  --saqr-syn-operator: #FF7B72;
+  --saqr-syn-punctuation: #C9D1D9;
+  --saqr-syn-tag: #7EE787;
+  --saqr-syn-attribute: #79C0FF;
+  --saqr-syn-regexp: #A5D6FF;
+  --saqr-syn-constant: #79C0FF;
+  --saqr-syn-builtin: #FFA657;
+  --saqr-syn-classname: #F0883E;
+  --saqr-syn-property: #79C0FF;
+
+  /* Spacing */
+  --saqr-space-xs: 4px;
+  --saqr-space-sm: 8px;
+  --saqr-space-md: 16px;
+  --saqr-space-lg: 24px;
+  --saqr-space-xl: 32px;
+  --saqr-space-xxl: 48px;
+
+  /* Typography */
+  --saqr-font-xs: 10px;
+  --saqr-font-sm: 12px;
+  --saqr-font-md: 14px;
+  --saqr-font-lg: 16px;
+  --saqr-font-xl: 20px;
+  --saqr-font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --saqr-font-system: 'SF Pro', 'Roboto', system-ui, sans-serif;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --saqr-bg: #FFFFFF;
+  --saqr-surface: #F6F8FA;
+  --saqr-card-bg: #F0F2F5;
+  --saqr-footer-bg: #FFFFFF;
+  --saqr-text-primary: #24292F;
+  --saqr-text-secondary: #57606A;
+  --saqr-muted: #8C959F;
+  --saqr-user-bubble: #E8EAED;
+  --saqr-user-text: #24292F;
+  --saqr-assistant-bubble: #F0F2F5;
+  --saqr-assistant-text: #24292F;
+  --saqr-success: #1A7F37;
+  --saqr-warning: #9A6700;
+  --saqr-error: #CF222E;
+  --saqr-info: #0969DA;
+  --saqr-tool-read: #0969DA;
+  --saqr-tool-edit: #9A6700;
+  --saqr-tool-write: #1A7F37;
+  --saqr-tool-bash: #8250DF;
+  --saqr-tool-search: #BF3989;
+  --saqr-tool-webfetch: #0550AE;
+  --saqr-tool-task: #BC4C00;
+  --saqr-thinking-bg: #F0F2F5;
+  --saqr-thinking-text: #57606A;
+  --saqr-permission-bg: #FFF8C5;
+  --saqr-error-bg: #FFEBE9;
+  --saqr-code-block-bg: #F6F8FA;
+  --saqr-diff-added-bg: #CCFFD8;
+  --saqr-diff-removed-bg: #FFD7D5;
+  --saqr-table-row-alt: #F6F8FA;
+  --saqr-task-nesting: rgba(188, 76, 0, 0.15);
+  --saqr-scrubber-bg: #F6F8FA;
+  --saqr-search-highlight: #FFF8C5;
+  --saqr-border: #D0D7DE;
+  --saqr-border-active: #0969DA;
+  --saqr-syn-keyword: #CF222E;
+  --saqr-syn-string: #0A3069;
+  --saqr-syn-number: #0550AE;
+  --saqr-syn-comment: #6E7781;
+  --saqr-syn-function: #8250DF;
+  --saqr-syn-variable: #953800;
+  --saqr-syn-type: #0550AE;
+  --saqr-syn-operator: #CF222E;
+  --saqr-syn-punctuation: #24292F;
+  --saqr-syn-tag: #116329;
+  --saqr-syn-attribute: #0550AE;
+  --saqr-syn-regexp: #0A3069;
+  --saqr-syn-constant: #0550AE;
+  --saqr-syn-builtin: #953800;
+  --saqr-syn-classname: #953800;
+  --saqr-syn-property: #0550AE;
+}

@@ -17,6 +17,12 @@
 import type { Env, AuthContext } from './types.js';
 import { verifyToken, JWTError } from './auth/jwt.js';
 import { handleRegister, handleLogin } from './auth/handlers.js';
+import {
+  handleDeviceCode,
+  handleDevicePoll,
+  handleDeviceApprove,
+  handleRefreshToken,
+} from './auth/device-code.js';
 import { checkRateLimit } from './middleware/rate-limiter.js';
 import { handleGetCurated, handleGetPopular } from './codeguard/public-handlers.js';
 import { handleTelemetryPush } from './codeguard/telemetry-handlers.js';
@@ -40,7 +46,8 @@ function requiresAuth(pathname: string): boolean {
     pathname.startsWith('/api/sync/') ||
     pathname.startsWith('/api/account') ||
     pathname.startsWith('/api/machines') ||
-    pathname === '/api/codeguard/telemetry'
+    pathname === '/api/codeguard/telemetry' ||
+    pathname === '/api/auth/device-approve'
   );
 }
 
@@ -172,6 +179,19 @@ export default {
       return respond(await handleLogin(request, env));
     }
 
+    // --- Device code flow (public endpoints) ---
+    if (url.pathname === '/api/auth/device-code' && request.method === 'POST') {
+      return respond(await handleDeviceCode(request, env));
+    }
+
+    if (url.pathname === '/api/auth/device-poll' && request.method === 'POST') {
+      return respond(await handleDevicePoll(request, env));
+    }
+
+    if (url.pathname === '/api/auth/refresh' && request.method === 'POST') {
+      return respond(await handleRefreshToken(request, env));
+    }
+
     // --- Public codeguard endpoints (no auth) ---
     if (url.pathname === '/api/codeguard/curated' && request.method === 'GET') {
       return respond(await handleGetCurated(env));
@@ -210,6 +230,13 @@ export default {
     const rateLimitResult = await checkRateLimit(env, authCtx);
     if (rateLimitResult) {
       return respond(rateLimitResult);
+    }
+
+    // --- Device code approval (authed, not routed to DO) ---
+    if (url.pathname === '/api/auth/device-approve' && request.method === 'POST') {
+      return respond(
+        await handleDeviceApprove(request, env, authCtx.userId, authCtx.email, authCtx.tier, 'user'),
+      );
     }
 
     // --- Codeguard telemetry (authed but not routed to DO) ---

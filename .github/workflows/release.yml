@@ -1,0 +1,659 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    name: Version (release)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: version
+        run: bash scripts/version.sh
+
+  # ─── Mobile Android APK Build ───────────────────────────────────────
+
+  build-mobile-android:
+    name: Build Android APK
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh
+
+      - name: Prebuild Android
+        working-directory: packages/mobile
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build release APK
+        working-directory: packages/mobile/android
+        run: ./gradlew assembleRelease
+
+      - name: Rename APK artifact
+        run: |
+          APK_PATH=$(find packages/mobile/android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          cp "$APK_PATH" Saqr.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: Saqr.apk
+          retention-days: 5
+
+  # ─── Mobile iOS Build ────────────────────────────────────────────────
+
+  build-mobile-ios:
+    name: Build iOS (Release)
+    needs: version
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh
+
+      - name: Prebuild iOS
+        working-directory: packages/mobile
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Build for simulator
+        working-directory: packages/mobile/ios
+        run: |
+          xcodebuild -workspace Saqr.xcworkspace -scheme Saqr \
+            -sdk iphonesimulator -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+
+      - name: Package iOS .ipa
+        run: |
+          APP_PATH=$(find packages/mobile/ios/build/Build/Products/Release-iphonesimulator -name "*.app" -maxdepth 1 | head -1)
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          cd Payload && zip -r ../Saqr.ipa . && cd ..
+          rm -rf Payload
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release
+          path: Saqr.ipa
+          retention-days: 5
+
+  # ─── Desktop Builds (Tauri) ─────────────────────────────────────────
+
+  build-desktop-macos:
+    name: Build Desktop (macOS)
+    needs: version
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh
+
+      - name: Build dashboard frontend
+        run: pnpm --filter dashboard run build
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: packages/desktop
+          tauriScript: npx tauri
+          args: --target aarch64-apple-darwin --verbose
+          tagName: ""
+          releaseName: ""
+
+      - name: Rename macOS client
+        run: |
+          DMG=$(find packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          cp "$DMG" Saqr.dmg
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: Saqr.dmg
+          retention-days: 5
+
+  build-desktop-windows:
+    name: Build Desktop (Windows)
+    needs: version
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        shell: bash
+        run: bash scripts/version.sh
+
+      - name: Build dashboard frontend
+        run: pnpm --filter dashboard run build
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: packages/desktop
+          tauriScript: npx tauri
+          args: --verbose
+          tagName: ""
+          releaseName: ""
+
+      - name: Rename Windows client
+        shell: bash
+        run: |
+          EXE=$(find packages/desktop/src-tauri/target/release/bundle/nsis -name "*.exe" | head -1)
+          cp "$EXE" Saqr.exe
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: Saqr.exe
+          retention-days: 5
+
+  build-desktop-linux:
+    name: Build Desktop (Linux)
+    needs: version
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh
+
+      - name: Build dashboard frontend
+        run: pnpm --filter dashboard run build
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: packages/desktop
+          tauriScript: npx tauri
+          args: --verbose
+          tagName: ""
+          releaseName: ""
+
+      - name: Rename Linux client
+        run: |
+          cp packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage Saqr.AppImage
+          cp packages/desktop/src-tauri/target/release/bundle/deb/*.deb Saqr.deb
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            Saqr.AppImage
+            Saqr.deb
+          retention-days: 5
+
+  # ─── Web Deploy (Expo Web → Cloudflare Workers) ────────────────────
+
+  deploy-web:
+    name: Deploy Web (Cloudflare Workers)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh
+
+      - name: Export web build
+        working-directory: packages/mobile
+        run: npx expo export --platform web
+
+      - name: Deploy to Cloudflare Workers
+        working-directory: packages/mobile
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ─── Server Deploy (Cloudflare Workers) ─────────────────────────────
+
+  deploy-servers:
+    name: Deploy Servers (production)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy sync-server
+        working-directory: packages/sync-server
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy admin-server
+        working-directory: packages/admin-server
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ─── Website Deploy (React Router → Cloudflare Workers) ────────────
+
+  deploy-website:
+    name: Deploy Website (production)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build website
+        working-directory: packages/website
+        run: pnpm build
+
+      - name: Deploy website to Cloudflare Workers
+        working-directory: packages/website
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ─── SaqrNest Server Builds ────────────────────────────────────────
+
+  build-nest-macos:
+    name: Build SaqrNest (macOS)
+    needs: version
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS .pkg
+        working-directory: packages/installer
+        run: bash scripts/build-macos.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to SaqrNest.pkg
+        run: |
+          PKG=$(find packages/installer/dist -name "*.pkg" | head -1)
+          cp "$PKG" SaqrNest.pkg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-macos
+          path: SaqrNest.pkg
+          retention-days: 5
+
+  build-nest-windows:
+    name: Build SaqrNest (Windows)
+    needs: version
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SEA binary
+        working-directory: packages/installer
+        run: node scripts/build-sea.js
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to SaqrNest.exe
+        shell: bash
+        run: cp packages/installer/dist/saqr.exe SaqrNest.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-windows
+          path: SaqrNest.exe
+          retention-days: 5
+
+  build-nest-linux:
+    name: Build SaqrNest (Linux)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux .deb
+        working-directory: packages/installer
+        run: bash scripts/build-linux.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to SaqrNest.deb
+        run: |
+          DEB=$(find packages/installer/dist -name "*.deb" | head -1)
+          cp "$DEB" SaqrNest.deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-linux
+          path: SaqrNest.deb
+          retention-days: 5
+
+  # ─── Release (Changelog + Tag + GitHub Release + Assets) ────────────
+
+  release:
+    name: Create Release
+    needs:
+      - version
+      - build-mobile-android
+      - build-mobile-ios
+      - build-desktop-macos
+      - build-desktop-windows
+      - build-desktop-linux
+      - deploy-web
+      - deploy-servers
+      - deploy-website
+      - build-nest-macos
+      - build-nest-windows
+      - build-nest-linux
+    if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          bash scripts/changelog.sh > changelog.txt
+          echo "Generated changelog:"
+          cat changelog.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepend to CHANGELOG.md
+        run: |
+          VERSION="v${{ needs.version.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+          {
+            echo "## ${VERSION} (${DATE})"
+            echo ""
+            cat changelog.txt
+          } > changelog_entry.txt
+
+          if [[ -f CHANGELOG.md ]]; then
+            head -n 2 CHANGELOG.md > CHANGELOG_new.md
+            echo "" >> CHANGELOG_new.md
+            cat changelog_entry.txt >> CHANGELOG_new.md
+            echo "" >> CHANGELOG_new.md
+            tail -n +3 CHANGELOG.md >> CHANGELOG_new.md
+            mv CHANGELOG_new.md CHANGELOG.md
+          else
+            {
+              echo "# Changelog"
+              echo ""
+              cat changelog_entry.txt
+            } > CHANGELOG.md
+          fi
+
+      - name: Create changelog PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(release): v${{ needs.version.outputs.version }} changelog"
+          title: "chore(release): v${{ needs.version.outputs.version }} changelog"
+          body: "Auto-generated changelog update for v${{ needs.version.outputs.version }}"
+          branch: chore/changelog-v${{ needs.version.outputs.version }}
+          base: main
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ needs.version.outputs.version }}"
+          git push origin "v${{ needs.version.outputs.version }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: List downloaded artifacts
+        run: find release-assets -type f 2>/dev/null || echo "No artifacts downloaded"
+
+      - name: Create GitHub release with assets
+        run: |
+          VERSION="v${{ needs.version.outputs.version }}"
+
+          # Collect all asset files
+          ASSETS=()
+          if [[ -d release-assets ]]; then
+            while IFS= read -r file; do
+              ASSETS+=("$file")
+            done < <(find release-assets -type f \( \
+              -name "Saqr.dmg" -o \
+              -name "Saqr.exe" -o \
+              -name "Saqr.AppImage" -o \
+              -name "Saqr.deb" -o \
+              -name "Saqr.apk" -o \
+              -name "Saqr.ipa" -o \
+              -name "SaqrNest.pkg" -o \
+              -name "SaqrNest.exe" -o \
+              -name "SaqrNest.deb" \
+            \))
+          fi
+
+          # Build the gh release create command
+          CMD=(gh release create "$VERSION" --title "$VERSION" --notes-file changelog.txt --exclude-source-archives)
+          for asset in "${ASSETS[@]}"; do
+            CMD+=("$asset")
+          done
+
+          "${CMD[@]}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
