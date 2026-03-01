@@ -70,6 +70,23 @@ describe("generateLaunchDaemonPlist", () => {
   });
 });
 
+describe("build-windows.sh NSIS template", () => {
+  it("VIProductVersion uses numeric-only X.X.X.X format even for prerelease versions", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const script = readFileSync(
+      resolve(__dirname, "../scripts/build-windows.sh"),
+      "utf-8",
+    );
+
+    // The script must strip prerelease suffixes (e.g. "0.1.44-pr.3") from
+    // VIProductVersion, since NSIS requires strict X.X.X.X numeric format.
+    // It should use a sanitized variable, not raw ${VERSION}.0
+    expect(script).toMatch(/VI_VERSION/);
+    expect(script).not.toMatch(/VIProductVersion "\$\{VERSION\}\.0"/);
+  });
+});
+
 describe("build-sea.js", () => {
   it("bundles with CJS format (SEA requires CommonJS)", () => {
     const { readFileSync } = require("node:fs");

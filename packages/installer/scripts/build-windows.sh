@@ -10,6 +10,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
 DIST="$ROOT/dist"
 VERSION="${VERSION:-0.1.0}"
+# VIProductVersion requires strict X.X.X.X numeric format — strip prerelease suffix
+VI_VERSION="${VERSION%%-*}.0"
 
 echo "Building Windows installer v${VERSION}..."
 
@@ -62,7 +64,7 @@ InstallDir "\$LOCALAPPDATA\\Saqr"
 RequestExecutionLevel user
 
 ; Version info embedded in .exe
-VIProductVersion "${VERSION}.0"
+VIProductVersion "${VI_VERSION}"
 VIAddVersionKey "ProductName" "\${PRODUCT_NAME}"
 VIAddVersionKey "CompanyName" "\${PRODUCT_PUBLISHER}"
 VIAddVersionKey "FileDescription" "Saqr Agent Server"
