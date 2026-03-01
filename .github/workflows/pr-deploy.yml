@@ -155,7 +155,7 @@ jobs:
 
             const rows = [
               ['macOS (arm64)', '${{ needs.build-desktop-macos.result }}', '.dmg', '${{ needs.build-nest-macos.result }}', '.pkg'],
-              ['Windows (x64)', '${{ needs.build-desktop-windows.result }}', '.exe', '${{ needs.build-nest-windows.result }}', '.exe installer'],
+              ['Windows (x64)', '${{ needs.build-desktop-windows.result }}', '.exe', '${{ needs.build-nest-windows.result }}', '.exe'],
               ['Linux (amd64)', '${{ needs.build-desktop-linux.result }}', '.AppImage .deb', '${{ needs.build-nest-linux.result }}', '.deb'],
               ['Android', '${{ needs.build-mobile-android.result }}', '.apk', 'n/a', '—'],
               ['iOS', '${{ needs.build-mobile-ios.result }}', '.ipa', 'n/a', '—'],
@@ -463,15 +463,15 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Rename to SaqrNest-setup.exe
+      - name: Rename to SaqrNest.exe
         shell: bash
-        run: cp packages/installer/dist/SaqrNest-setup.exe SaqrNest-setup.exe
+        run: cp packages/installer/dist/SaqrNest.exe SaqrNest.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nest-windows-preview
-          path: SaqrNest-setup.exe
+          path: SaqrNest.exe
           retention-days: 5
 
   build-nest-linux:
@@ -774,7 +774,7 @@ jobs:
               -name "Saqr.apk" -o \
               -name "Saqr.ipa" -o \
               -name "SaqrNest.pkg" -o \
-              -name "SaqrNest-setup.exe" -o \
+              -name "SaqrNest.exe" -o \
               -name "SaqrNest.deb" \
             \))
           fi

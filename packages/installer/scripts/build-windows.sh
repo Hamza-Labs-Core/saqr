@@ -131,8 +131,8 @@ NSIS
 if command -v makensis &>/dev/null; then
   echo "Compiling NSIS installer..."
   makensis "$DIST/saqr-installer.nsi"
-  mv "$DIST/saqr-setup.exe" "$DIST/SaqrNest-setup.exe"
-  echo "Installer: $DIST/SaqrNest-setup.exe"
+  mv "$DIST/saqr-setup.exe" "$DIST/SaqrNest.exe"
+  echo "Installer: $DIST/SaqrNest.exe"
 else
   echo "makensis not found — NSIS script generated but not compiled"
   echo "Install NSIS to compile: choco install nsis (Windows) or apt install nsis (Linux)"

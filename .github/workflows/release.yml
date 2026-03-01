@@ -501,15 +501,15 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Rename to SaqrNest-setup.exe
+      - name: Rename to SaqrNest.exe
         shell: bash
-        run: cp packages/installer/dist/SaqrNest-setup.exe SaqrNest-setup.exe
+        run: cp packages/installer/dist/SaqrNest.exe SaqrNest.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nest-windows
-          path: SaqrNest-setup.exe
+          path: SaqrNest.exe
           retention-days: 5
 
   build-nest-linux:
@@ -655,7 +655,7 @@ jobs:
               -name "Saqr.apk" -o \
               -name "Saqr.ipa" -o \
               -name "SaqrNest.pkg" -o \
-              -name "SaqrNest-setup.exe" -o \
+              -name "SaqrNest.exe" -o \
               -name "SaqrNest.deb" \
             \))
           fi
