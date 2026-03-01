@@ -45,3 +45,9 @@ packages/mobile/ios/
 # Desktop / Rust
 target/
 packages/desktop/src-tauri/target/
+
+# React Router generated types
+.react-router/
+
+# Claude Code
+.claude/plans/
