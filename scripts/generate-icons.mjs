@@ -13,7 +13,7 @@ import toIco from 'to-ico';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
-const SOURCE = join(ROOT, 'assets', 'Logolite-small.png');
+const SOURCE = join(ROOT, 'assets', 'Logo-small.png');
 
 if (!existsSync(SOURCE)) {
   console.error(`Source image not found: ${SOURCE}`);
