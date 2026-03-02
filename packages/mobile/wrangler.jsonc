@@ -4,6 +4,7 @@
   "assets": {
     "directory": "./dist"
   },
+  // "routes": [{ "pattern": "app.saqr.dev", "custom_domain": true }],
   "env": {
     "preview": {
       "name": "saqr-web-preview"

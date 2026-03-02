@@ -7,6 +7,13 @@
     "directory": "./build/client"
   },
   "main": "./worker-entry.js",
+  "placement": {
+    "mode": "smart"
+  },
+  // "routes": [
+  //   { "pattern": "saqr.dev", "custom_domain": true },
+  //   { "pattern": "www.saqr.dev", "custom_domain": true }
+  // ],
   "vars": {
     "SYNC_SERVER_URL": "https://sync.saqr.dev",
     "ADMIN_SERVER_URL": "https://admin.saqr.dev"

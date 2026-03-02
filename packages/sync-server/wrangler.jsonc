@@ -1,4 +1,9 @@
 {
+  // ─── Secrets (set via CLI before first deploy) ───────────────────────
+  //    wrangler secret put JWT_SECRET
+  //    wrangler secret put JWT_SECRET --env preview
+  // ─────────────────────────────────────────────────────────────────────
+
   "name": "saqr-sync",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
@@ -6,6 +11,7 @@
   "placement": {
     "mode": "smart"
   },
+  // "routes": [{ "pattern": "sync.saqr.dev", "custom_domain": true }],
   "durable_objects": {
     "bindings": [
       { "name": "USER_SYNC", "class_name": "UserSyncDO" }
@@ -24,12 +30,14 @@
     }
   ],
   "kv_namespaces": [
-    { "binding": "AUTH_KV", "id": "TBD" },
-    { "binding": "REGISTRY_KV", "id": "TBD" }
+    { "binding": "AUTH_KV", "id": "a6ac79941363432a99e648792785ad8b", "preview_id": "ed7b73541aab4671b8e21bae32d37e76" },
+    { "binding": "REGISTRY_KV", "id": "f1d559fea2954805a9695e2758d18ce6", "preview_id": "7813e81d810c4f37b631132b9b0b6b69" }
   ],
   "vars": {
     "JWT_ISSUER": "saqr",
     "JWT_AUDIENCE": "saqr-sync",
+    "ALLOWED_ORIGINS": "https://saqr.dev,https://www.saqr.dev",
+    "WEBSITE_URL": "https://saqr.dev",
     "FREE_TIER_STORAGE_BYTES": "5242880",
     "PRO_TIER_STORAGE_BYTES": "524288000",
     "TEAM_TIER_STORAGE_BYTES": "5368709120",
@@ -43,9 +51,53 @@
     "PRO_TIER_RETENTION_DAYS": "365",
     "TEAM_TIER_RETENTION_DAYS": "0"
   },
+
+  // ─── Secrets (set via CLI, NOT in config) ────────────────────────────
+  // JWT_SECRET — used by worker.ts, device-code.ts, handlers.ts
+  // ─────────────────────────────────────────────────────────────────────
+
   "env": {
     "preview": {
-      "name": "saqr-sync-preview"
+      "name": "saqr-sync-preview",
+      "durable_objects": {
+        "bindings": [
+          { "name": "USER_SYNC", "class_name": "UserSyncDO" }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["UserSyncDO"]
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "SYNC_BUCKET",
+          "bucket_name": "saqr-sync-data-preview"
+        }
+      ],
+      "kv_namespaces": [
+        { "binding": "AUTH_KV", "id": "ed7b73541aab4671b8e21bae32d37e76" },
+        { "binding": "REGISTRY_KV", "id": "7813e81d810c4f37b631132b9b0b6b69" }
+      ],
+      "vars": {
+        "JWT_ISSUER": "saqr",
+        "JWT_AUDIENCE": "saqr-sync",
+        "ALLOWED_ORIGINS": "https://saqr-website-preview.workers.dev",
+        "WEBSITE_URL": "https://saqr-website-preview.workers.dev",
+        "FREE_TIER_STORAGE_BYTES": "5242880",
+        "PRO_TIER_STORAGE_BYTES": "524288000",
+        "TEAM_TIER_STORAGE_BYTES": "5368709120",
+        "FREE_TIER_MACHINES": "2",
+        "PRO_TIER_MACHINES": "5",
+        "TEAM_TIER_MACHINES": "0",
+        "FREE_TIER_RATE_PER_MIN": "60",
+        "PRO_TIER_RATE_PER_MIN": "600",
+        "TEAM_TIER_RATE_PER_MIN": "6000",
+        "FREE_TIER_RETENTION_DAYS": "30",
+        "PRO_TIER_RETENTION_DAYS": "365",
+        "TEAM_TIER_RETENTION_DAYS": "0"
+      }
     }
   }
 }

@@ -1,4 +1,10 @@
 {
+  // ─── Secrets (set via CLI before first deploy) ───────────────────────
+  // KV namespaces are SHARED with sync-server (same IDs).
+  //    wrangler secret put JWT_SECRET
+  //    wrangler secret put JWT_SECRET --env preview
+  // ─────────────────────────────────────────────────────────────────────
+
   "name": "saqr-admin",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
@@ -6,18 +12,33 @@
   "placement": {
     "mode": "smart"
   },
+  // "routes": [{ "pattern": "admin.saqr.dev", "custom_domain": true }],
   "kv_namespaces": [
-    { "binding": "AUTH_KV", "id": "TBD" },
-    { "binding": "REGISTRY_KV", "id": "TBD" }
+    { "binding": "AUTH_KV", "id": "a6ac79941363432a99e648792785ad8b", "preview_id": "ed7b73541aab4671b8e21bae32d37e76" },
+    { "binding": "REGISTRY_KV", "id": "f1d559fea2954805a9695e2758d18ce6", "preview_id": "7813e81d810c4f37b631132b9b0b6b69" }
   ],
   "vars": {
     "JWT_ISSUER": "saqr",
     "JWT_AUDIENCE": "saqr-admin",
     "ALLOWED_ORIGINS": "https://admin.saqr.dev"
   },
+
+  // ─── Secrets (set via CLI, NOT in config) ────────────────────────────
+  // JWT_SECRET — same value as sync-server
+  // ─────────────────────────────────────────────────────────────────────
+
   "env": {
     "preview": {
-      "name": "saqr-admin-preview"
+      "name": "saqr-admin-preview",
+      "kv_namespaces": [
+        { "binding": "AUTH_KV", "id": "ed7b73541aab4671b8e21bae32d37e76" },
+        { "binding": "REGISTRY_KV", "id": "7813e81d810c4f37b631132b9b0b6b69" }
+      ],
+      "vars": {
+        "JWT_ISSUER": "saqr",
+        "JWT_AUDIENCE": "saqr-admin",
+        "ALLOWED_ORIGINS": "https://saqr-website-preview.workers.dev"
+      }
     }
   }
 }
