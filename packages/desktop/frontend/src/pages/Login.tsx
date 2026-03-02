@@ -23,13 +23,12 @@ const SYNC_SERVER = import.meta.env.VITE_SYNC_SERVER || "https://sync.saqr.dev";
  * 4. Poll for approval
  */
 export function LoginPage({ onLogin }: LoginPageProps): React.ReactElement {
-  const [state, setState] = useState<"loading" | "polling" | "error">("loading");
+  const [state, setState] = useState<"idle" | "loading" | "polling" | "error">("idle");
   const [deviceCode, setDeviceCode] = useState<DeviceCodeState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    requestDeviceCode();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -121,12 +120,23 @@ export function LoginPage({ onLogin }: LoginPageProps): React.ReactElement {
     <div className="login-container">
       <div className="login-card">
         <div className="login-logo">Saqr</div>
-        <p className="login-subtitle">Sign in to connect to your dev servers</p>
+        <p className="login-subtitle">Manage your dev servers from anywhere</p>
+
+        {state === "idle" && (
+          <>
+            <p className="login-status" style={{ marginBottom: 20 }}>
+              Sign in with your Saqr account to get started.
+            </p>
+            <button className="btn btn-primary" onClick={requestDeviceCode}>
+              Sign In
+            </button>
+          </>
+        )}
 
         {state === "loading" && (
           <>
             <div className="spinner" />
-            <p className="login-status">Requesting device code...</p>
+            <p className="login-status">Connecting...</p>
           </>
         )}
 
