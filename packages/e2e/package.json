@@ -1,0 +1,15 @@
+{
+  "name": "@saqr/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "E2E tests against preview deployments",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

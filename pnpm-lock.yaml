@@ -127,6 +127,18 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.11)(lightningcss@1.31.1)(terser@5.46.0)(yaml@2.8.2)
 
+  packages/e2e:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.11
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.11)(lightningcss@1.31.1)(terser@5.46.0)(yaml@2.8.2)
+
   packages/gc-core: {}
 
   packages/github:

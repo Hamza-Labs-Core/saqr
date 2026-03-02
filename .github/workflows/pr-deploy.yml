@@ -524,6 +524,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    outputs:
+      sync_url: ${{ steps.deploy-sync.outputs.url }}
+      admin_url: ${{ steps.deploy-admin.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -606,6 +609,32 @@ jobs:
                 body,
               });
             }
+
+  # ─── E2E Tests Against Preview ─────────────────────────────────────
+
+  e2e-preview:
+    name: E2E Tests (preview)
+    needs: deploy-servers-preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run E2E tests against preview
+        run: pnpm --filter @saqr/e2e run test
+        env:
+          E2E_SYNC_URL: ${{ needs.deploy-servers-preview.outputs.sync_url }}
+          E2E_ADMIN_URL: ${{ needs.deploy-servers-preview.outputs.admin_url }}
 
   # ─── Web Client Preview Deploy (Expo Web → Cloudflare Workers) ─────
 
@@ -738,7 +767,7 @@ jobs:
 
   prerelease:
     name: Create Prerelease
-    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, build-nest-macos, build-nest-windows, build-nest-linux, deploy-servers-preview, deploy-web-preview, deploy-website-preview]
+    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, build-nest-macos, build-nest-windows, build-nest-linux, deploy-servers-preview, e2e-preview, deploy-web-preview, deploy-website-preview]
     if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:
