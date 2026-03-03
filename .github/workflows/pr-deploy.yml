@@ -627,7 +627,7 @@ jobs:
 
   e2e-preview:
     name: E2E Tests (preview)
-    needs: deploy-servers-preview
+    needs: [deploy-servers-preview, deploy-website-preview]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -648,6 +648,7 @@ jobs:
         env:
           E2E_SYNC_URL: ${{ needs.deploy-servers-preview.outputs.sync_url }}
           E2E_ADMIN_URL: ${{ needs.deploy-servers-preview.outputs.admin_url }}
+          E2E_WEBSITE_URL: ${{ needs.deploy-website-preview.outputs.url }}
 
   # ─── Web Client Preview Deploy (Expo Web → Cloudflare Workers) ─────
 

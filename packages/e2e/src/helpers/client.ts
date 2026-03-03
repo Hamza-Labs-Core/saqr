@@ -4,6 +4,9 @@ export const SYNC_URL =
 export const ADMIN_URL =
   process.env.E2E_ADMIN_URL ?? 'https://saqr-admin-preview.workers.dev';
 
+export const WEBSITE_URL =
+  process.env.E2E_WEBSITE_URL ?? 'https://saqr-website-preview.workers.dev';
+
 export const TEST_PASSWORD = 'e2e-Secure-Pass-12345';
 
 export function makeUniqueEmail(): string {
@@ -86,6 +89,28 @@ export async function waitForHealthy(
   }
   throw new Error(
     `${url}/api/health not healthy after ${maxAttempts} attempts`,
+  );
+}
+
+// ── Website cold-start retry ────────────────────────────────────────
+
+export async function waitForWebsite(
+  maxAttempts = 10,
+  delayMs = 3_000,
+): Promise<void> {
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      const res = await fetch(WEBSITE_URL);
+      if (res.ok) return;
+    } catch {
+      // network error — retry
+    }
+    if (i < maxAttempts) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error(
+    `${WEBSITE_URL} not healthy after ${maxAttempts} attempts`,
   );
 }
 

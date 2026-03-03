@@ -1,5 +1,12 @@
-// Thin wrapper for Cloudflare Workers.
-// React Router's build outputs the fetch handler as a named export
-// (entry.module.default), but wrangler needs `export default { fetch }`.
-import { entry } from './build/server/index.js';
-export default entry.module.default;
+import { createRequestHandler } from "react-router";
+import * as serverBuild from "./build/server/index.js";
+
+const requestHandler = createRequestHandler(serverBuild, "production");
+
+export default {
+  async fetch(request, env, ctx) {
+    return requestHandler(request, {
+      cloudflare: { env, ctx },
+    });
+  },
+};
