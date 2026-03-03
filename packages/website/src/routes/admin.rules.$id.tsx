@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { apiGet } from "../lib/api";
+import { apiGet, getAdminServerUrl } from "../lib/api";
 import "../app.css";
 
 interface CuratedRule {
@@ -245,6 +245,4 @@ const inputStyle: React.CSSProperties = {
   fontSize: "14px",
 };
 
-function getAdminUrl(): string {
-  return import.meta.env.VITE_ADMIN_SERVER_URL ?? "https://admin.saqr.dev";
-}
+const getAdminUrl = getAdminServerUrl;

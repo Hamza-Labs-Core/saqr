@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { apiGet } from "../lib/api";
+import { apiGet, getAdminServerUrl } from "../lib/api";
 import "../app.css";
 
 interface AdminStats {
@@ -96,6 +96,4 @@ function StatCard({ label, value, link }: { label: string; value: number; link: 
   );
 }
 
-function getAdminUrl(): string {
-  return import.meta.env.VITE_ADMIN_SERVER_URL ?? "https://admin.saqr.dev";
-}
+const getAdminUrl = getAdminServerUrl;

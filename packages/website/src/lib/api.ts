@@ -2,15 +2,30 @@
  * API client for communicating with the sync-server.
  */
 
+declare global {
+  interface Window {
+    __ENV?: {
+      SYNC_SERVER_URL?: string;
+      ADMIN_SERVER_URL?: string;
+    };
+  }
+}
+
 const DEFAULT_SYNC_URL = 'https://sync.saqr.dev';
+const DEFAULT_ADMIN_URL = 'https://admin.saqr.dev';
 
 export function getSyncServerUrl(): string {
-  // In the browser, use a meta tag or default
-  if (typeof window !== 'undefined') {
-    const meta = document.querySelector('meta[name="sync-server-url"]');
-    return meta?.getAttribute('content') ?? DEFAULT_SYNC_URL;
+  if (typeof window !== 'undefined' && window.__ENV?.SYNC_SERVER_URL) {
+    return window.__ENV.SYNC_SERVER_URL;
   }
   return DEFAULT_SYNC_URL;
+}
+
+export function getAdminServerUrl(): string {
+  if (typeof window !== 'undefined' && window.__ENV?.ADMIN_SERVER_URL) {
+    return window.__ENV.ADMIN_SERVER_URL;
+  }
+  return DEFAULT_ADMIN_URL;
 }
 
 export interface ApiError {

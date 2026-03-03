@@ -3,7 +3,7 @@
  */
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router";
-import { apiGet, apiPost } from "../lib/api";
+import { apiGet, apiPost, getAdminServerUrl } from "../lib/api";
 import "../app.css";
 
 interface UserInfo {
@@ -148,6 +148,4 @@ function formatDate(iso: string): string {
   }
 }
 
-function getAdminUrl(): string {
-  return import.meta.env.VITE_ADMIN_SERVER_URL ?? "https://admin.saqr.dev";
-}
+const getAdminUrl = getAdminServerUrl;
