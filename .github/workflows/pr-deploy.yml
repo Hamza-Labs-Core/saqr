@@ -550,7 +550,7 @@ jobs:
           set -e
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
-          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-sync-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -566,7 +566,7 @@ jobs:
           set -e
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
-          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-admin-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -694,7 +694,7 @@ jobs:
           set -e
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
-          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-web-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -771,7 +771,7 @@ jobs:
           set -e
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
-          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
           echo "url=${URL:-https://saqr-website-preview.workers.dev}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
