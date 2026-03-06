@@ -2,7 +2,7 @@
  * Login page — email + password form, hits sync-server /api/auth/login.
  */
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { apiPost } from '../lib/api';
 import '../app.css';
 
@@ -15,6 +15,8 @@ interface LoginResponse {
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get('redirect');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,7 +33,7 @@ export default function LoginPage() {
       // Store token in localStorage
       localStorage.setItem('saqr_token', result.data.access_token);
       localStorage.setItem('saqr_user', JSON.stringify(result.data.user));
-      navigate('/dashboard');
+      navigate(redirect || '/dashboard');
     } else {
       setError(result.error?.message ?? 'Login failed');
     }
@@ -103,7 +105,7 @@ export default function LoginPage() {
 
         <p style={{ textAlign: 'center', marginTop: '16px', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
           Don&apos;t have an account?{' '}
-          <Link to="/auth/register">Create one</Link>
+          <Link to={redirect ? `/auth/register?redirect=${encodeURIComponent(redirect)}` : '/auth/register'}>Create one</Link>
         </p>
       </div>
     </div>

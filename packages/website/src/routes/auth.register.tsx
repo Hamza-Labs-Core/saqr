@@ -2,7 +2,7 @@
  * Register page — email + password form, hits sync-server /api/auth/register.
  */
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { apiPost } from '../lib/api';
 import '../app.css';
 
@@ -15,6 +15,8 @@ interface RegisterResponse {
 
 export default function RegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get('redirect');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -42,7 +44,7 @@ export default function RegisterPage() {
     if (result.data) {
       localStorage.setItem('saqr_token', result.data.access_token);
       localStorage.setItem('saqr_user', JSON.stringify(result.data.user));
-      navigate('/dashboard');
+      navigate(redirect || '/dashboard');
     } else {
       setError(result.error?.message ?? 'Registration failed');
     }
@@ -130,7 +132,7 @@ export default function RegisterPage() {
 
         <p style={{ textAlign: 'center', marginTop: '16px', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
           Already have an account?{' '}
-          <Link to="/auth/login">Sign in</Link>
+          <Link to={redirect ? `/auth/login?redirect=${encodeURIComponent(redirect)}` : '/auth/login'}>Sign in</Link>
         </p>
       </div>
     </div>
