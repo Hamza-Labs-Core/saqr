@@ -201,7 +201,7 @@ jobs:
 
   build-desktop-macos:
     name: Build Desktop (macOS preview)
-    needs: version
+    needs: [version, deploy-servers-preview]
     runs-on: macos-latest
     permissions:
       contents: read
@@ -239,7 +239,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VITE_SYNC_SERVER: https://saqr-sync-preview.workers.dev
+          VITE_SYNC_SERVER: ${{ needs.deploy-servers-preview.outputs.sync_url }}
         with:
           projectPath: packages/desktop
           tauriScript: npx tauri
@@ -261,7 +261,7 @@ jobs:
 
   build-desktop-windows:
     name: Build Desktop (Windows preview)
-    needs: version
+    needs: [version, deploy-servers-preview]
     runs-on: windows-latest
     permissions:
       contents: read
@@ -298,7 +298,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VITE_SYNC_SERVER: https://saqr-sync-preview.workers.dev
+          VITE_SYNC_SERVER: ${{ needs.deploy-servers-preview.outputs.sync_url }}
         with:
           projectPath: packages/desktop
           tauriScript: npx tauri
@@ -321,7 +321,7 @@ jobs:
 
   build-desktop-linux:
     name: Build Desktop (Linux preview)
-    needs: version
+    needs: [version, deploy-servers-preview]
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -367,7 +367,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VITE_SYNC_SERVER: https://saqr-sync-preview.workers.dev
+          VITE_SYNC_SERVER: ${{ needs.deploy-servers-preview.outputs.sync_url }}
         with:
           projectPath: packages/desktop
           tauriScript: npx tauri
@@ -551,7 +551,8 @@ jobs:
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
-          echo "url=${URL:-https://saqr-sync-preview.workers.dev}" >> "$GITHUB_OUTPUT"
+          if [ -z "$URL" ]; then echo "::error::Failed to extract sync-server preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -567,7 +568,8 @@ jobs:
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
-          echo "url=${URL:-https://saqr-admin-preview.workers.dev}" >> "$GITHUB_OUTPUT"
+          if [ -z "$URL" ]; then echo "::error::Failed to extract admin-server preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -695,7 +697,8 @@ jobs:
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
-          echo "url=${URL:-https://saqr-web-preview.workers.dev}" >> "$GITHUB_OUTPUT"
+          if [ -z "$URL" ]; then echo "::error::Failed to extract web preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -772,7 +775,8 @@ jobs:
           echo "$OUTPUT"
           if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
           URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
-          echo "url=${URL:-https://saqr-website-preview.workers.dev}" >> "$GITHUB_OUTPUT"
+          if [ -z "$URL" ]; then echo "::error::Failed to extract website preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

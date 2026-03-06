@@ -22,8 +22,8 @@
     "preview": {
       "name": "saqr-website-preview",
       "vars": {
-        "SYNC_SERVER_URL": "https://saqr-sync-preview.workers.dev",
-        "ADMIN_SERVER_URL": "https://saqr-admin-preview.workers.dev"
+        "SYNC_SERVER_URL": "https://saqr-sync-preview.mahmoud-s-darwish.workers.dev",
+        "ADMIN_SERVER_URL": "https://saqr-admin-preview.mahmoud-s-darwish.workers.dev"
       }
     }
   }

@@ -36,7 +36,7 @@
   "vars": {
     "JWT_ISSUER": "saqr",
     "JWT_AUDIENCE": "saqr-sync",
-    "ALLOWED_ORIGINS": "https://saqr.dev,https://www.saqr.dev",
+    "ALLOWED_ORIGINS": "https://saqr.dev,https://www.saqr.dev,tauri://localhost",
     "WEBSITE_URL": "https://saqr.dev",
     "FREE_TIER_STORAGE_BYTES": "5242880",
     "PRO_TIER_STORAGE_BYTES": "524288000",
@@ -83,8 +83,8 @@
       "vars": {
         "JWT_ISSUER": "saqr",
         "JWT_AUDIENCE": "saqr-sync",
-        "ALLOWED_ORIGINS": "https://saqr-website-preview.workers.dev",
-        "WEBSITE_URL": "https://saqr-website-preview.workers.dev",
+        "ALLOWED_ORIGINS": "https://saqr-website-preview.mahmoud-s-darwish.workers.dev,tauri://localhost,http://localhost:5173",
+        "WEBSITE_URL": "https://saqr-website-preview.mahmoud-s-darwish.workers.dev",
         "FREE_TIER_STORAGE_BYTES": "5242880",
         "PRO_TIER_STORAGE_BYTES": "524288000",
         "TEAM_TIER_STORAGE_BYTES": "5368709120",

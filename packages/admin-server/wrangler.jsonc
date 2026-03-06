@@ -37,7 +37,7 @@
       "vars": {
         "JWT_ISSUER": "saqr",
         "JWT_AUDIENCE": "saqr-admin",
-        "ALLOWED_ORIGINS": "https://saqr-website-preview.workers.dev"
+        "ALLOWED_ORIGINS": "https://saqr-website-preview.mahmoud-s-darwish.workers.dev"
       }
     }
   }

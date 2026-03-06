@@ -1,11 +1,11 @@
 export const SYNC_URL =
-  process.env.E2E_SYNC_URL ?? 'https://saqr-sync-preview.workers.dev';
+  process.env.E2E_SYNC_URL ?? 'https://saqr-sync-preview.mahmoud-s-darwish.workers.dev';
 
 export const ADMIN_URL =
-  process.env.E2E_ADMIN_URL ?? 'https://saqr-admin-preview.workers.dev';
+  process.env.E2E_ADMIN_URL ?? 'https://saqr-admin-preview.mahmoud-s-darwish.workers.dev';
 
 export const WEBSITE_URL =
-  process.env.E2E_WEBSITE_URL ?? 'https://saqr-website-preview.workers.dev';
+  process.env.E2E_WEBSITE_URL ?? 'https://saqr-website-preview.mahmoud-s-darwish.workers.dev';
 
 export const TEST_PASSWORD = 'e2e-Secure-Pass-12345';
 

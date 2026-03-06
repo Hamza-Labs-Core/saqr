@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* wss://*.saqr.dev http://localhost:* https://*.saqr.dev https://sync.saqr.dev; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* wss://*.saqr.dev http://localhost:* https://*.saqr.dev https://*.workers.dev; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
