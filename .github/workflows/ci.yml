@@ -18,6 +18,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 15
 
     steps:
@@ -75,6 +77,8 @@ jobs:
   gc-core:
     name: gc-core (bash)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
 
     steps:

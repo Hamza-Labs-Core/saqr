@@ -36,6 +36,8 @@ jobs:
             rust-targets: ''
 
     runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
