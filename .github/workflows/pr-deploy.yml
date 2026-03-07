@@ -5,6 +5,9 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+
 concurrency:
   group: pr-deploy-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -631,6 +634,8 @@ jobs:
     name: E2E Tests (preview)
     needs: [deploy-servers-preview, deploy-website-preview]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
