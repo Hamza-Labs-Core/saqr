@@ -22,6 +22,9 @@ const ROOT = resolve(__dirname, "..");
 const DIST = resolve(ROOT, "dist");
 const MONO_ROOT = resolve(ROOT, "../..");
 
+// On Windows, npx/node are .cmd batch wrappers — execFileSync needs the full name.
+const NPX = process.platform === "win32" ? "npx.cmd" : "npx";
+
 /**
  * Execute a command with explicit args array (no shell interpolation).
  * Uses execFileSync to avoid CodeQL "shell command built from environment values".
@@ -46,7 +49,7 @@ async function main() {
   const bundlePath = resolve(DIST, "saqr-bundle.js");
 
   console.log("Bundling with esbuild...");
-  run("npx", [
+  run(NPX, [
     "esbuild", entryPoint,
     "--bundle", "--platform=node", "--target=node20", "--format=cjs",
     `--outfile=${bundlePath}`, "--external:fsevents",
@@ -84,13 +87,13 @@ async function main() {
 
   if (platform === "darwin") {
     run("codesign", ["--remove-signature", outputBin]);
-    run("npx", [...postjectArgs, "--macho-segment-name", "NODE_SEA"]);
+    run(NPX, [...postjectArgs, "--macho-segment-name", "NODE_SEA"]);
     run("codesign", ["--sign", "-", outputBin]);
   } else if (platform === "linux") {
-    run("npx", postjectArgs);
+    run(NPX, postjectArgs);
   } else if (platform === "win32") {
     // signtool remove not needed for unsigned builds
-    run("npx", postjectArgs);
+    run(NPX, postjectArgs);
   }
 
   // 7. Stamp Windows PE version info (file properties visible in Explorer)
