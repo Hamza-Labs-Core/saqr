@@ -82,7 +82,8 @@ function openBrowser(url: string): void {
   if (platform === "darwin") {
     execFile("open", [url], () => {});
   } else if (platform === "win32") {
-    execFile("cmd", ["/c", "start", "", url], () => {});
+    // Use explorer.exe (not cmd /c start) to avoid shell interpretation
+    execFile("explorer.exe", [url], () => {});
   } else {
     execFile("xdg-open", [url], () => {});
   }

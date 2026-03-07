@@ -130,6 +130,8 @@ describe("CLI login command security", () => {
     expect(login).toContain("execFile");
     expect(login).not.toMatch(/\bexec\b\(/);
     expect(login).not.toMatch(/from ["']node:child_process["'].*\bexec\b[^F]/);
+    // cmd.exe is a shell — execFile("cmd", ...) still allows injection
+    expect(login).not.toMatch(/execFile\(["']cmd/);
   });
 
   it("validates URL scheme before opening browser", () => {
