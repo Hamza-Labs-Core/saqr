@@ -24,8 +24,6 @@
  *   --version, -v    Show version
  */
 
-import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
 import { runLogin } from "../commands/login.js";
 import { runLogout } from "../commands/logout.js";
 import { runInstall } from "../commands/install.js";
@@ -208,8 +206,21 @@ async function main(): Promise<void> {
   }
 }
 
-// Only run main() when executed directly, not when imported as a module (e.g. tests)
-const __filename = fileURLToPath(import.meta.url);
-if (resolve(process.argv[1] ?? "") === __filename) {
+// Only run main() when executed directly, not when imported as a module (e.g. tests).
+// We avoid import.meta.url here because the SEA build uses --format=cjs where
+// import.meta is empty. Instead, check if this file is the Node.js entry point
+// by testing whether process.argv[1] ends with the expected script name.
+// In vitest, process.argv[1] is the vitest runner, so this won't match.
+const _entryArg = process.argv[1] ?? "";
+if (
+  _entryArg.endsWith("/saqr.ts") ||
+  _entryArg.endsWith("/saqr.js") ||
+  _entryArg.endsWith("\\saqr.ts") ||
+  _entryArg.endsWith("\\saqr.js") ||
+  _entryArg.endsWith("/saqrnest") ||
+  _entryArg.endsWith("\\saqrnest") ||
+  _entryArg.endsWith("\\SaqrNest.exe") ||
+  _entryArg.endsWith("/SaqrNest.exe")
+) {
   main();
 }

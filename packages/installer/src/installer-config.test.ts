@@ -103,6 +103,43 @@ describe("build-sea.js", () => {
   });
 });
 
+describe("CLI entry point SEA compatibility", () => {
+  it("does not use import.meta at top-level (breaks CJS SEA bundle)", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const entry = readFileSync(
+      resolve(__dirname, "../../cli/src/bin/saqr.ts"),
+      "utf-8",
+    );
+    // import.meta.url is empty when bundled with --format=cjs, which causes
+    // fileURLToPath(import.meta.url) to throw at runtime. The main() guard
+    // must use a CJS-compatible check instead.
+    expect(entry).not.toMatch(/fileURLToPath\(import\.meta\.url\)/);
+  });
+
+  it("workspace packages used by CLI are bundleable by esbuild", () => {
+    const { readFileSync, existsSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    // Verify all @saqr/* imports in CLI commands can be resolved from source
+    // (not dist/) since the SEA build bundles from TypeScript source
+    const srcDir = resolve(__dirname, "../../cli/src/commands");
+    const commands = ["login.ts", "logout.ts", "start.ts", "status.ts", "stop.ts"];
+    for (const cmd of commands) {
+      const filePath = resolve(srcDir, cmd);
+      if (!existsSync(filePath)) continue;
+      const content = readFileSync(filePath, "utf-8");
+      // Static imports of @saqr/* must be resolvable by esbuild
+      const staticImports = content.match(/from ["']@saqr\/[^"']+["']/g) || [];
+      for (const imp of staticImports) {
+        const pkg = imp.match(/@saqr\/([^"']+)/)?.[1];
+        // Verify the package's src/index.ts exists (esbuild resolves from source)
+        const srcIndex = resolve(__dirname, `../../${pkg}/src/index.ts`);
+        expect(existsSync(srcIndex), `${cmd}: ${imp} — missing ${srcIndex}`).toBe(true);
+      }
+    }
+  });
+});
+
 describe("generateDebianControl", () => {
   it("generates valid control file", () => {
     const control = generateDebianControl("0.1.0", "amd64");

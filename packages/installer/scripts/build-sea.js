@@ -41,8 +41,17 @@ async function main() {
   const entryPoint = resolve(MONO_ROOT, "packages/cli/src/bin/saqr.ts");
   const bundlePath = resolve(DIST, "saqr-bundle.js");
 
+  // Resolve workspace packages to their TypeScript source (no build step needed).
+  // esbuild --alias:pkg=path replaces all imports of pkg with the given path.
+  const aliases = [
+    `--alias:@saqr/shared=${resolve(MONO_ROOT, "packages/shared/src/index.ts")}`,
+    `--alias:@saqr/sync-client=${resolve(MONO_ROOT, "packages/sync-client/src/index.ts")}`,
+    `--alias:@saqr/daemon=${resolve(MONO_ROOT, "packages/daemon/src/index.ts")}`,
+    `--alias:@saqr/dashboard=${resolve(MONO_ROOT, "packages/dashboard/src/index.ts")}`,
+  ].join(" ");
+
   console.log("Bundling with esbuild...");
-  run(`npx esbuild "${entryPoint}" --bundle --platform=node --target=node20 --format=cjs --outfile="${bundlePath}" --external:fsevents`);
+  run(`npx esbuild "${entryPoint}" --bundle --platform=node --target=node20 --format=cjs --outfile="${bundlePath}" --external:fsevents ${aliases}`);
 
   // 3. Generate SEA config
   const seaConfig = {
