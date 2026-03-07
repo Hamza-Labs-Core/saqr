@@ -13,13 +13,13 @@ export interface InstallerConfig {
 export function detectPlatform(): InstallerConfig {
   const platform = process.platform as "darwin" | "linux" | "win32";
   const arch = process.arch as "x64" | "arm64";
-  const binaryName = platform === "win32" ? "saqr.exe" : "saqr";
+  const binaryName = platform === "win32" ? "SaqrNest.exe" : "saqrnest";
 
   const installDir = platform === "darwin"
     ? "/usr/local/bin"
     : platform === "linux"
     ? "/usr/local/bin"
-    : `${process.env.LOCALAPPDATA ?? "C:\\Users\\Default\\AppData\\Local"}\\Saqr`;
+    : `${process.env.LOCALAPPDATA ?? "C:\\Users\\Default\\AppData\\Local"}\\SaqrNest`;
 
   return {
     version: process.env.VERSION ?? "0.1.0",
@@ -56,12 +56,12 @@ export function generateSeaConfig(bundlePath: string, blobPath: string): SeaConf
  */
 export function generateSystemdUnit(binaryPath: string): string {
   return `[Unit]
-Description=Saqr Daemon
+Description=SaqrNest Daemon
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=${binaryPath} daemon start --foreground
+ExecStart=${binaryPath} start --foreground
 Restart=on-failure
 RestartSec=5
 
@@ -79,21 +79,21 @@ export function generateLaunchDaemonPlist(binaryPath: string): string {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>dev.saqr.daemon</string>
+    <string>dev.hamzalabs.saqrnest.daemon</string>
     <key>ProgramArguments</key>
     <array>
         <string>${binaryPath}</string>
-        <string>daemon</string>
         <string>start</string>
+        <string>--foreground</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/saqr-daemon.log</string>
+    <string>/tmp/saqrnest-daemon.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/saqr-daemon.err</string>
+    <string>/tmp/saqrnest-daemon.err</string>
 </dict>
 </plist>
 `;
@@ -103,14 +103,15 @@ export function generateLaunchDaemonPlist(binaryPath: string): string {
  * Generate Debian control file content.
  */
 export function generateDebianControl(version: string, arch: string): string {
-  return `Package: saqr
+  return `Package: saqrnest
 Version: ${version}
 Section: devel
 Priority: optional
 Architecture: ${arch}
 Maintainer: Hamza Labs <hello@hamza.dev>
-Description: Saqr agent management platform - server daemon + CLI
- Remote agent management with terminal-faithful UI.
- Includes daemon, CLI, and development tools.
+Homepage: https://saqr.dev
+Description: SaqrNest — agent management daemon + CLI
+ Multi-agent management platform with terminal-faithful UI.
+ Includes daemon, CLI, and tray application.
 `;
 }

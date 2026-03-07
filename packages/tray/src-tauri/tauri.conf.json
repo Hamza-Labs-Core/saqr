@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
+  "productName": "SaqrNestUI",
+  "version": "0.1.0",
+  "identifier": "dev.saqr.tray",
+  "build": {
+    "beforeBuildCommand": "pnpm vite build",
+    "beforeDevCommand": "pnpm vite",
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:5174"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self' http://tauri.localhost; script-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://tauri.localhost http://localhost:* http://127.0.0.1:* https://*.saqr.dev https://*.workers.dev; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "copyright": "Copyright © 2024-2026 Hamza Labs. All rights reserved.",
+    "shortDescription": "System tray app for managing the SaqrNest daemon",
+    "longDescription": "SaqrNestUI — lightweight system tray application for monitoring and controlling the SaqrNest agent management daemon. Provides quick access to daemon status, login, and agent sessions.",
+    "category": "DeveloperTool",
+    "publisher": "Hamza Labs",
+    "homepage": "https://saqr.dev",
+    "license": "MIT",
+    "externalBin": [
+      "binaries/SaqrNest"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ],
+        "section": "utils"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  }
+}

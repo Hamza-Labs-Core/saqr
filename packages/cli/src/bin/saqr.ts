@@ -24,6 +24,10 @@
  *   --version, -v    Show version
  */
 
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { runLogin } from "../commands/login.js";
+import { runLogout } from "../commands/logout.js";
 import { runInstall } from "../commands/install.js";
 import { runDoctor } from "../commands/doctor.js";
 import { runStart } from "../commands/start.js";
@@ -110,16 +114,22 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 function printHelp(): void {
   console.log(`
-${bold("saqr")} - Multi-agent hook system CLI
+${bold("saqrnest")} - Multi-agent hook system CLI
 
 ${bold("USAGE")}
-  ${cyan("saqr")} <command> [options]
+  ${cyan("saqrnest")} <command> [options]
+
+${bold("GETTING STARTED")}
+  ${cyan("login")}      Authenticate with Saqr Cloud
+  ${cyan("logout")}     Log out of Saqr Cloud
+  ${cyan("start")}      Start the SaqrNest daemon
+  ${cyan("status")}     Show daemon and agent status
 
 ${bold("COMMANDS")}
   ${cyan("install")}    Install hook integrations for coding agents
   ${cyan("doctor")}     Run health checks on installed integrations
-  ${cyan("start")}      Start the saqr event daemon
-  ${cyan("stop")}       Stop the saqr event daemon
+  ${cyan("start")}      Start the SaqrNest daemon
+  ${cyan("stop")}       Stop the SaqrNest daemon
   ${cyan("status")}     Show daemon and agent status
   ${cyan("watch")}      Live-stream events from the daemon
   ${cyan("query")}      Query stored events
@@ -130,19 +140,20 @@ ${bold("OPTIONS")}
   ${dim("--version, -v")}    Show version
 
 ${bold("EXAMPLES")}
-  ${dim("$")} saqr install --claude-code
-  ${dim("$")} saqr doctor
-  ${dim("$")} saqr start
-  ${dim("$")} saqr status
-  ${dim("$")} saqr watch --filter SessionStarted
-  ${dim("$")} saqr query --type ToolCallCompleted --last 1h
-  ${dim("$")} saqr agent list
+  ${dim("$")} saqrnest login
+  ${dim("$")} saqrnest start
+  ${dim("$")} saqrnest status
+  ${dim("$")} saqrnest install --claude-code
+  ${dim("$")} saqrnest doctor
+  ${dim("$")} saqrnest watch --filter SessionStarted
+  ${dim("$")} saqrnest query --type ToolCallCompleted --last 1h
+  ${dim("$")} saqrnest agent list
 `);
 }
 
 function printVersion(): void {
   // TODO: read version from package.json at build time
-  console.log("saqr 0.1.0");
+  console.log("saqrnest 0.1.0");
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +161,8 @@ function printVersion(): void {
 // ---------------------------------------------------------------------------
 
 const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
+  login: runLogin,
+  logout: runLogout,
   install: runInstall,
   doctor: runDoctor,
   start: runStart,
@@ -182,7 +195,7 @@ async function main(): Promise<void> {
   const handler = COMMANDS[args.command];
   if (!handler) {
     error(`Unknown command: ${args.command}`);
-    console.log(`\nRun ${cyan("saqr --help")} for available commands.`);
+    console.log(`\nRun ${cyan("saqrnest --help")} for available commands.`);
     process.exit(1);
   }
 
@@ -195,4 +208,8 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+// Only run main() when executed directly, not when imported as a module (e.g. tests)
+const __filename = fileURLToPath(import.meta.url);
+if (resolve(process.argv[1] ?? "") === __filename) {
+  main();
+}

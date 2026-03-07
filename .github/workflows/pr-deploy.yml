@@ -77,13 +77,13 @@ jobs:
       - name: Rename APK
         run: |
           APK_PATH=$(find packages/mobile/android/app/build/outputs/apk/debug -name "*.apk" | head -1)
-          cp "$APK_PATH" Saqr.apk
+          cp "$APK_PATH" "Saqr-${{ needs.version.outputs.version }}-android.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-preview
-          path: Saqr.apk
+          path: "Saqr-${{ needs.version.outputs.version }}-android.apk"
           retention-days: 5
 
   # ─── Mobile iOS Simulator Preview ────────────────────────────────────
@@ -253,13 +253,13 @@ jobs:
       - name: Rename macOS client
         run: |
           DMG=$(find packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
-          cp "$DMG" Saqr.dmg
+          cp "$DMG" "Saqr-Installer-${{ needs.version.outputs.version }}-macos-universal.dmg"
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-macos-preview
-          path: Saqr.dmg
+          path: "Saqr-Installer-${{ needs.version.outputs.version }}-macos-universal.dmg"
           retention-days: 5
 
   build-desktop-windows:
@@ -313,13 +313,13 @@ jobs:
         shell: bash
         run: |
           EXE=$(find packages/desktop/src-tauri/target/release/bundle/nsis -name "*.exe" | head -1)
-          cp "$EXE" Saqr.exe
+          cp "$EXE" "Saqr-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-windows-preview
-          path: Saqr.exe
+          path: "Saqr-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
           retention-days: 5
 
   build-desktop-linux:
@@ -379,16 +379,16 @@ jobs:
 
       - name: Rename Linux client
         run: |
-          cp packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage Saqr.AppImage
-          cp packages/desktop/src-tauri/target/release/bundle/deb/*.deb Saqr.deb
+          cp packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage "Saqr-${{ needs.version.outputs.version }}-linux-x86_64.AppImage"
+          cp packages/desktop/src-tauri/target/release/bundle/deb/*.deb "Saqr-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb"
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-linux-preview
           path: |
-            Saqr.AppImage
-            Saqr.deb
+            Saqr-${{ needs.version.outputs.version }}-linux-x86_64.AppImage
+            Saqr-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb
           retention-days: 5
 
   # ─── SaqrNest Server Builds ────────────────────────────────────────
@@ -419,16 +419,16 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Rename to SaqrNest.pkg
+      - name: Rename to versioned .pkg
         run: |
           PKG=$(find packages/installer/dist -name "*.pkg" | head -1)
-          cp "$PKG" SaqrNest.pkg
+          cp "$PKG" "SaqrNest-Installer-${{ needs.version.outputs.version }}-macos-universal.pkg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nest-macos-preview
-          path: SaqrNest.pkg
+          path: "SaqrNest-Installer-${{ needs.version.outputs.version }}-macos-universal.pkg"
           retention-days: 5
 
   build-nest-windows:
@@ -469,15 +469,21 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Rename to SaqrNest.exe
+      - name: Rename to versioned .exe
         shell: bash
-        run: cp packages/installer/dist/SaqrNest.exe SaqrNest.exe
+        run: |
+          EXE=$(find packages/installer/dist -name "SaqrNest-Installer-*.exe" | head -1)
+          if [[ -n "$EXE" ]]; then
+            cp "$EXE" "SaqrNest-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
+          else
+            cp packages/installer/dist/SaqrNest.exe "SaqrNest-Installer-${{ needs.version.outputs.version }}-windows-x64.exe" 2>/dev/null || true
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nest-windows-preview
-          path: SaqrNest.exe
+          path: "SaqrNest-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
           retention-days: 5
 
   build-nest-linux:
@@ -506,16 +512,16 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
 
-      - name: Rename to SaqrNest.deb
+      - name: Rename to versioned .deb
         run: |
           DEB=$(find packages/installer/dist -name "*.deb" | head -1)
-          cp "$DEB" SaqrNest.deb
+          cp "$DEB" "SaqrNest-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nest-linux-preview
-          path: SaqrNest.deb
+          path: "SaqrNest-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb"
           retention-days: 5
 
   # ─── Server Preview Deploy ──────────────────────────────────────────
@@ -822,15 +828,15 @@ jobs:
             while IFS= read -r file; do
               ASSETS+=("$file")
             done < <(find release-assets -type f \( \
-              -name "Saqr.dmg" -o \
-              -name "Saqr.exe" -o \
-              -name "Saqr.AppImage" -o \
-              -name "Saqr.deb" -o \
-              -name "Saqr.apk" -o \
+              -name "Saqr-Installer-*.dmg" -o \
+              -name "Saqr-Installer-*.exe" -o \
+              -name "Saqr-*-linux-*.AppImage" -o \
+              -name "Saqr-Installer-*-linux-*.deb" -o \
+              -name "Saqr-*-android.apk" -o \
               -name "Saqr.ipa" -o \
-              -name "SaqrNest.pkg" -o \
-              -name "SaqrNest.exe" -o \
-              -name "SaqrNest.deb" \
+              -name "SaqrNest-Installer-*.pkg" -o \
+              -name "SaqrNest-Installer-*.exe" -o \
+              -name "SaqrNest-Installer-*.deb" \
             \))
           fi
 

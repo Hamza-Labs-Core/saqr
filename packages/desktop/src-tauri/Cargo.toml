@@ -2,6 +2,10 @@
 name = "saqr-desktop"
 version = "0.1.0"
 description = "Saqr Desktop Application"
+authors = ["Hamza Labs <hello@hamza.dev>"]
+license = "MIT"
+homepage = "https://saqr.dev"
+repository = "https://github.com/Hamza-Labs-Core/saqr"
 edition = "2021"
 
 [dependencies]

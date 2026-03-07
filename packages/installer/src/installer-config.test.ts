@@ -20,10 +20,10 @@ describe("detectPlatform", () => {
     expect(config.installDir).toBeTruthy();
   });
 
-  it("binary name is saqr on unix", () => {
+  it("binary name is saqrnest on unix", () => {
     const config = detectPlatform();
     if (config.platform !== "win32") {
-      expect(config.binaryName).toBe("saqr");
+      expect(config.binaryName).toBe("saqrnest");
     }
   });
 
@@ -48,11 +48,11 @@ describe("generateSeaConfig", () => {
 
 describe("generateSystemdUnit", () => {
   it("generates valid systemd unit", () => {
-    const unit = generateSystemdUnit("/usr/local/bin/saqr");
+    const unit = generateSystemdUnit("/usr/local/bin/saqrnest");
     expect(unit).toContain("[Unit]");
     expect(unit).toContain("[Service]");
     expect(unit).toContain("[Install]");
-    expect(unit).toContain("ExecStart=/usr/local/bin/saqr daemon start --foreground");
+    expect(unit).toContain("ExecStart=/usr/local/bin/saqrnest start --foreground");
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("WantedBy=multi-user.target");
   });
@@ -60,11 +60,11 @@ describe("generateSystemdUnit", () => {
 
 describe("generateLaunchDaemonPlist", () => {
   it("generates valid plist", () => {
-    const plist = generateLaunchDaemonPlist("/usr/local/bin/saqr");
+    const plist = generateLaunchDaemonPlist("/usr/local/bin/saqrnest");
     expect(plist).toContain('<?xml version="1.0"');
     expect(plist).toContain("<key>Label</key>");
-    expect(plist).toContain("<string>dev.saqr.daemon</string>");
-    expect(plist).toContain("<string>/usr/local/bin/saqr</string>");
+    expect(plist).toContain("<string>dev.hamzalabs.saqrnest.daemon</string>");
+    expect(plist).toContain("<string>/usr/local/bin/saqrnest</string>");
     expect(plist).toContain("<key>RunAtLoad</key>");
     expect(plist).toContain("<true/>");
   });
@@ -106,11 +106,11 @@ describe("build-sea.js", () => {
 describe("generateDebianControl", () => {
   it("generates valid control file", () => {
     const control = generateDebianControl("0.1.0", "amd64");
-    expect(control).toContain("Package: saqr");
+    expect(control).toContain("Package: saqrnest");
     expect(control).toContain("Version: 0.1.0");
     expect(control).toContain("Architecture: amd64");
     expect(control).toContain("Maintainer: Hamza Labs");
-    expect(control).toContain("Description: Saqr");
+    expect(control).toContain("Description: SaqrNest");
   });
 
   it("uses provided version and arch", () => {

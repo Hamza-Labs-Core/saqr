@@ -80,6 +80,22 @@ if [[ -f "$CARGO_TOML" ]]; then
   echo "Updated $CARGO_TOML"
 fi
 
+# Update tray tauri.conf.json
+TRAY_CONF="$(git rev-parse --show-toplevel)/packages/tray/src-tauri/tauri.conf.json"
+if [[ -f "$TRAY_CONF" ]]; then
+  tmp=$(mktemp)
+  jq --arg v "$VERSION" '.version = $v' "$TRAY_CONF" > "$tmp" && mv "$tmp" "$TRAY_CONF"
+  echo "Updated $TRAY_CONF"
+fi
+
+# Update tray Cargo.toml
+TRAY_CARGO="$(git rev-parse --show-toplevel)/packages/tray/src-tauri/Cargo.toml"
+if [[ -f "$TRAY_CARGO" ]]; then
+  tmp=$(mktemp)
+  awk -v ver="$VERSION" '/^version = "/ && done==0 { print "version = \"" ver "\""; done=1; next } 1' "$TRAY_CARGO" > "$tmp" && mv "$tmp" "$TRAY_CARGO"
+  echo "Updated $TRAY_CARGO"
+fi
+
 # Write to GitHub Actions output
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "version=$VERSION" >> "$GITHUB_OUTPUT"

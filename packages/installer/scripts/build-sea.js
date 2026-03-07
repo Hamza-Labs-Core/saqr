@@ -30,7 +30,7 @@ function run(cmd, opts = {}) {
 async function main() {
   const platform = process.platform;
   const arch = process.arch;
-  const binaryName = platform === "win32" ? "saqr.exe" : "saqr";
+  const binaryName = platform === "win32" ? "SaqrNest.exe" : "saqrnest";
 
   console.log(`Building SEA for ${platform}-${arch}...`);
 
@@ -76,6 +76,42 @@ async function main() {
   } else if (platform === "win32") {
     // signtool remove not needed for unsigned builds
     run(`npx postject "${outputBin}" NODE_SEA_BLOB "${seaConfig.output}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`);
+  }
+
+  // 7. Stamp Windows PE version info (file properties visible in Explorer)
+  if (platform === "win32") {
+    console.log("Stamping Windows PE version info...");
+    const version = process.env.VERSION ?? "0.1.0";
+    // file-version and product-version require X.X.X.X format
+    const versionParts = version.replace(/-.*$/, "").split(".");
+    while (versionParts.length < 4) versionParts.push("0");
+    const fileVersion = versionParts.slice(0, 4).join(".");
+
+    try {
+      const rcedit = (await import("rcedit")).default ?? (await import("rcedit"));
+      await new Promise((res, rej) => {
+        const opts = {
+          "file-version": fileVersion,
+          "product-version": fileVersion,
+          "version-string": {
+            CompanyName: "Hamza Labs",
+            FileDescription: "SaqrNest — Agent Management Daemon & CLI",
+            ProductName: "SaqrNest",
+            InternalName: "SaqrNest",
+            OriginalFilename: "SaqrNest.exe",
+            LegalCopyright: `Copyright \u00A9 2024-${new Date().getFullYear()} Hamza Labs. All rights reserved.`,
+          },
+          icon: resolve(MONO_ROOT, "packages/desktop/src-tauri/icons/icon.ico"),
+        };
+        // rcedit may export as CJS callback or ESM async — handle both
+        const result = rcedit(outputBin, opts, (err) => (err ? rej(err) : res()));
+        if (result && typeof result.then === "function") result.then(res, rej);
+      });
+      console.log("PE version info stamped.");
+    } catch (err) {
+      console.warn("Warning: could not stamp PE version info:", err.message);
+      console.warn("Install rcedit (npm i -D rcedit) and wine (on Linux/macOS) to embed .exe metadata.");
+    }
   }
 
   console.log(`\nSEA binary built: ${outputBin}`);
