@@ -101,6 +101,48 @@ describe("build-sea.js", () => {
     expect(script).toContain("--format=cjs");
     expect(script).not.toMatch(/--format=esm/);
   });
+
+  it("uses execFileSync instead of execSync to avoid shell injection", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const script = readFileSync(
+      resolve(__dirname, "../scripts/build-sea.js"),
+      "utf-8",
+    );
+    // execSync(string) passes the command through a shell, which can interpret
+    // metacharacters in file paths. execFileSync(bin, args) executes directly.
+    expect(script).toContain("execFileSync");
+    expect(script).not.toMatch(/\bexecSync\b/);
+  });
+});
+
+describe("CLI login command security", () => {
+  it("uses execFile (not exec) for browser opening to prevent command injection", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const login = readFileSync(
+      resolve(__dirname, "../../cli/src/commands/login.ts"),
+      "utf-8",
+    );
+    // exec(string) passes the command through a shell — a malicious sync server
+    // could inject shell commands via verification_uri_complete.
+    // execFile(bin, args) bypasses the shell entirely.
+    expect(login).toContain("execFile");
+    expect(login).not.toMatch(/\bexec\b\(/);
+    expect(login).not.toMatch(/from ["']node:child_process["'].*\bexec\b[^F]/);
+  });
+
+  it("validates URL scheme before opening browser", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const login = readFileSync(
+      resolve(__dirname, "../../cli/src/commands/login.ts"),
+      "utf-8",
+    );
+    // Must validate that only http: and https: URLs are opened
+    expect(login).toContain('parsed.protocol !== "https:"');
+    expect(login).toContain('parsed.protocol !== "http:"');
+  });
 });
 
 describe("CLI entry point SEA compatibility", () => {

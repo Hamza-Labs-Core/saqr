@@ -12,7 +12,7 @@
  *
  * @see https://nodejs.org/api/single-executable-applications.html
  */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { writeFileSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,9 +22,13 @@ const ROOT = resolve(__dirname, "..");
 const DIST = resolve(ROOT, "dist");
 const MONO_ROOT = resolve(ROOT, "../..");
 
-function run(cmd, opts = {}) {
-  console.log(`> ${cmd}`);
-  execSync(cmd, { stdio: "inherit", cwd: ROOT, ...opts });
+/**
+ * Execute a command with explicit args array (no shell interpolation).
+ * Uses execFileSync to avoid CodeQL "shell command built from environment values".
+ */
+function run(bin, args = [], opts = {}) {
+  console.log(`> ${bin} ${args.join(" ")}`);
+  execFileSync(bin, args, { stdio: "inherit", cwd: ROOT, ...opts });
 }
 
 async function main() {
@@ -41,17 +45,16 @@ async function main() {
   const entryPoint = resolve(MONO_ROOT, "packages/cli/src/bin/saqr.ts");
   const bundlePath = resolve(DIST, "saqr-bundle.js");
 
-  // Resolve workspace packages to their TypeScript source (no build step needed).
-  // esbuild --alias:pkg=path replaces all imports of pkg with the given path.
-  const aliases = [
+  console.log("Bundling with esbuild...");
+  run("npx", [
+    "esbuild", entryPoint,
+    "--bundle", "--platform=node", "--target=node20", "--format=cjs",
+    `--outfile=${bundlePath}`, "--external:fsevents",
     `--alias:@saqr/shared=${resolve(MONO_ROOT, "packages/shared/src/index.ts")}`,
     `--alias:@saqr/sync-client=${resolve(MONO_ROOT, "packages/sync-client/src/index.ts")}`,
     `--alias:@saqr/daemon=${resolve(MONO_ROOT, "packages/daemon/src/index.ts")}`,
     `--alias:@saqr/dashboard=${resolve(MONO_ROOT, "packages/dashboard/src/index.ts")}`,
-  ].join(" ");
-
-  console.log("Bundling with esbuild...");
-  run(`npx esbuild "${entryPoint}" --bundle --platform=node --target=node20 --format=cjs --outfile="${bundlePath}" --external:fsevents ${aliases}`);
+  ]);
 
   // 3. Generate SEA config
   const seaConfig = {
@@ -66,7 +69,7 @@ async function main() {
 
   // 4. Generate the blob
   console.log("Generating SEA blob...");
-  run(`node --experimental-sea-config "${configPath}"`);
+  run("node", ["--experimental-sea-config", configPath]);
 
   // 5. Copy node binary
   const nodeBin = process.execPath;
@@ -76,15 +79,18 @@ async function main() {
 
   // 6. Inject the blob
   console.log("Injecting SEA blob...");
+  const SENTINEL_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
+  const postjectArgs = ["postject", outputBin, "NODE_SEA_BLOB", seaConfig.output, "--sentinel-fuse", SENTINEL_FUSE];
+
   if (platform === "darwin") {
-    run(`codesign --remove-signature "${outputBin}"`);
-    run(`npx postject "${outputBin}" NODE_SEA_BLOB "${seaConfig.output}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`);
-    run(`codesign --sign - "${outputBin}"`);
+    run("codesign", ["--remove-signature", outputBin]);
+    run("npx", [...postjectArgs, "--macho-segment-name", "NODE_SEA"]);
+    run("codesign", ["--sign", "-", outputBin]);
   } else if (platform === "linux") {
-    run(`npx postject "${outputBin}" NODE_SEA_BLOB "${seaConfig.output}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`);
+    run("npx", postjectArgs);
   } else if (platform === "win32") {
     // signtool remove not needed for unsigned builds
-    run(`npx postject "${outputBin}" NODE_SEA_BLOB "${seaConfig.output}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`);
+    run("npx", postjectArgs);
   }
 
   // 7. Stamp Windows PE version info (file properties visible in Explorer)

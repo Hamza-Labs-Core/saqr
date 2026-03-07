@@ -17,7 +17,7 @@
  *   --help, -h       Show help for this command
  */
 
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import type { ParsedArgs } from "../bin/saqr.js";
 import {
   error,
@@ -62,20 +62,30 @@ ${bold("EXAMPLES")}
 
 /**
  * Open a URL in the default browser (best-effort, no throw).
+ *
+ * Uses execFile with an args array (not exec with string interpolation)
+ * to prevent command injection from server-provided URLs.
  */
 function openBrowser(url: string): void {
-  const platform = process.platform;
-  let cmd: string;
-  if (platform === "darwin") {
-    cmd = `open "${url}"`;
-  } else if (platform === "win32") {
-    cmd = `start "" "${url}"`;
-  } else {
-    cmd = `xdg-open "${url}"`;
+  // Validate URL scheme to prevent arbitrary command execution
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
   }
-  exec(cmd, () => {
-    /* ignore errors — browser open is best-effort */
-  });
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return;
+  }
+
+  const platform = process.platform;
+  if (platform === "darwin") {
+    execFile("open", [url], () => {});
+  } else if (platform === "win32") {
+    execFile("cmd", ["/c", "start", "", url], () => {});
+  } else {
+    execFile("xdg-open", [url], () => {});
+  }
 }
 
 export async function runLogin(args: ParsedArgs): Promise<void> {
