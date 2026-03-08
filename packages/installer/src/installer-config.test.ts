@@ -127,6 +127,19 @@ describe("build-sea.js", () => {
     // .cmd resolution on Windows while keeping args as a safe array.
     expect(script).not.toContain("npx.cmd");
   });
+
+  it("rcedit PE stamping has a timeout to prevent CI hangs", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const script = readFileSync(
+      resolve(__dirname, "../scripts/build-sea.js"),
+      "utf-8",
+    );
+    // rcedit on an 80MB SEA binary can hang for 17+ minutes on CI
+    // (especially with icon replacement). A timeout prevents CI jobs from
+    // being killed by the runner's global timeout.
+    expect(script).toMatch(/timeout|AbortController|setTimeout/);
+  });
 });
 
 describe("CLI login command security", () => {

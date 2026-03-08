@@ -104,25 +104,29 @@ async function main() {
     const fileVersion = versionParts.slice(0, 4).join(".");
 
     try {
-      const rcedit = (await import("rcedit")).default ?? (await import("rcedit"));
-      await new Promise((res, rej) => {
-        const opts = {
-          "file-version": fileVersion,
-          "product-version": fileVersion,
-          "version-string": {
-            CompanyName: "Hamza Labs",
-            FileDescription: "SaqrNest — Agent Management Daemon & CLI",
-            ProductName: "SaqrNest",
-            InternalName: "SaqrNest",
-            OriginalFilename: "SaqrNest.exe",
-            LegalCopyright: `Copyright \u00A9 2024-${new Date().getFullYear()} Hamza Labs. All rights reserved.`,
-          },
-          icon: resolve(MONO_ROOT, "packages/desktop/src-tauri/icons/icon.ico"),
-        };
-        // rcedit may export as CJS callback or ESM async — handle both
-        const result = rcedit(outputBin, opts, (err) => (err ? rej(err) : res()));
-        if (result && typeof result.then === "function") result.then(res, rej);
-      });
+      const rceditMod = await import("rcedit");
+      const rcedit = rceditMod.default ?? rceditMod;
+      const opts = {
+        "file-version": fileVersion,
+        "product-version": fileVersion,
+        "version-string": {
+          CompanyName: "Hamza Labs",
+          FileDescription: "SaqrNest — Agent Management Daemon & CLI",
+          ProductName: "SaqrNest",
+          InternalName: "SaqrNest",
+          OriginalFilename: "SaqrNest.exe",
+          LegalCopyright: `Copyright \u00A9 2024-${new Date().getFullYear()} Hamza Labs. All rights reserved.`,
+        },
+        // Note: icon embedding is skipped — rewriting the icon resource section
+        // on an 80MB SEA binary causes rcedit to hang for 17+ minutes on CI.
+        // The NSIS installer stamps its own icon separately.
+      };
+      // rcedit v4 is async-only. Add a timeout to prevent CI hangs.
+      const RCEDIT_TIMEOUT_MS = 60_000;
+      const timeout = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error(`rcedit timed out after ${RCEDIT_TIMEOUT_MS / 1000}s`)), RCEDIT_TIMEOUT_MS),
+      );
+      await Promise.race([rcedit(outputBin, opts), timeout]);
       console.log("PE version info stamped.");
     } catch (err) {
       console.warn("Warning: could not stamp PE version info:", err.message);
