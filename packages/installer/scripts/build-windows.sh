@@ -51,6 +51,10 @@ fi
 # --- NSIS script ---
 # Use heredoc with variable substitution for VERSION, but escape NSIS $ variables
 cat > "$DIST/saqrnest-installer.nsi" << NSIS
+; Use zlib instead of LZMA — the SEA binary is ~80MB and LZMA takes 15+ min on CI.
+; zlib compresses in seconds with a reasonable ratio for binaries.
+SetCompressor /SOLID zlib
+
 !include "MUI2.nsh"
 !include "WinMessages.nsh"
 !include "WordFunc.nsh"
