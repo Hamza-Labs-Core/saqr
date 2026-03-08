@@ -22,16 +22,14 @@ const ROOT = resolve(__dirname, "..");
 const DIST = resolve(ROOT, "dist");
 const MONO_ROOT = resolve(ROOT, "../..");
 
-// On Windows, npx/node are .cmd batch wrappers — execFileSync needs the full name.
-const NPX = process.platform === "win32" ? "npx.cmd" : "npx";
-
 /**
  * Execute a command with explicit args array (no shell interpolation).
- * Uses execFileSync to avoid CodeQL "shell command built from environment values".
+ * Uses execFileSync with shell:true so .cmd wrappers (npx, esbuild) work on
+ * Windows while still keeping arguments in a safe array (not string-interpolated).
  */
 function run(bin, args = [], opts = {}) {
   console.log(`> ${bin} ${args.join(" ")}`);
-  execFileSync(bin, args, { stdio: "inherit", cwd: ROOT, ...opts });
+  execFileSync(bin, args, { stdio: "inherit", shell: true, cwd: ROOT, ...opts });
 }
 
 async function main() {
@@ -49,7 +47,7 @@ async function main() {
   const bundlePath = resolve(DIST, "saqr-bundle.js");
 
   console.log("Bundling with esbuild...");
-  run(NPX, [
+  run("npx", [
     "esbuild", entryPoint,
     "--bundle", "--platform=node", "--target=node20", "--format=cjs",
     `--outfile=${bundlePath}`, "--external:fsevents",
@@ -87,13 +85,13 @@ async function main() {
 
   if (platform === "darwin") {
     run("codesign", ["--remove-signature", outputBin]);
-    run(NPX, [...postjectArgs, "--macho-segment-name", "NODE_SEA"]);
+    run("npx", [...postjectArgs, "--macho-segment-name", "NODE_SEA"]);
     run("codesign", ["--sign", "-", outputBin]);
   } else if (platform === "linux") {
-    run(NPX, postjectArgs);
+    run("npx", postjectArgs);
   } else if (platform === "win32") {
     // signtool remove not needed for unsigned builds
-    run(NPX, postjectArgs);
+    run("npx", postjectArgs);
   }
 
   // 7. Stamp Windows PE version info (file properties visible in Explorer)

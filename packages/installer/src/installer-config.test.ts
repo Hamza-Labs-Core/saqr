@@ -114,6 +114,19 @@ describe("build-sea.js", () => {
     expect(script).toContain("execFileSync");
     expect(script).not.toMatch(/\bexecSync\b/);
   });
+
+  it("does not hardcode npx.cmd (use shell: true for cross-platform)", () => {
+    const { readFileSync } = require("node:fs");
+    const { resolve } = require("node:path");
+    const script = readFileSync(
+      resolve(__dirname, "../scripts/build-sea.js"),
+      "utf-8",
+    );
+    // npx.cmd is a Windows-only batch wrapper — execFileSync cannot run .cmd
+    // files directly. Instead, use execFileSync with shell: true which handles
+    // .cmd resolution on Windows while keeping args as a safe array.
+    expect(script).not.toContain("npx.cmd");
+  });
 });
 
 describe("CLI login command security", () => {
