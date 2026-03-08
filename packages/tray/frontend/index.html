@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SaqrNest</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <nav class="tabs">
+        <button class="tab active" data-tab="status">Status</button>
+        <button class="tab" data-tab="login">Login</button>
+        <button class="tab" data-tab="agents">Agents</button>
+      </nav>
+
+      <!-- Status Tab -->
+      <div id="tab-status" class="tab-content active">
+        <div class="status-card">
+          <div class="status-row">
+            <span class="label">Daemon</span>
+            <span id="daemon-indicator" class="indicator stopped">Stopped</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Version</span>
+            <span id="daemon-version" class="value">—</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Uptime</span>
+            <span id="daemon-uptime" class="value">—</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Sessions</span>
+            <span id="session-count" class="value">0</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Sync</span>
+            <span id="sync-status" class="value">Not connected</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="btn-start" class="btn btn-primary">Start Daemon</button>
+          <button id="btn-stop" class="btn btn-danger" disabled>Stop Daemon</button>
+        </div>
+      </div>
+
+      <!-- Login Tab -->
+      <div id="tab-login" class="tab-content">
+        <div id="login-status" class="login-card">
+          <p class="login-message">Checking login status...</p>
+        </div>
+      </div>
+
+      <!-- Agents Tab -->
+      <div id="tab-agents" class="tab-content">
+        <div id="agents-list" class="agents-list">
+          <p class="empty-state">No active sessions</p>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="src/main.ts"></script>
+  </body>
+</html>

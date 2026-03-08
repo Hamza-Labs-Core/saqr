@@ -20,5 +20,6 @@
     "test:unit": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
-  }
+  },
+  "author": "Hamza Labs <hello@hamza.dev> (https://hamza.dev)"
 }

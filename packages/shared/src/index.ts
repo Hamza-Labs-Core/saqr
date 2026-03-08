@@ -102,6 +102,21 @@ export type {
   SyncConfig,
 } from "./sync/index.js";
 
+// -- Auth --------------------------------------------------------------------
+export type {
+  DeviceCodeRequest,
+  DeviceCodeResponse,
+  DevicePollRequest,
+  DevicePollTokenResponse,
+  DevicePollPendingError,
+  DevicePollErrorResponse,
+  DeviceCodeStatus,
+  DeviceCodeRecord,
+  AuthCallback,
+  RefreshTokenRequest,
+  RefreshTokenResponse,
+} from "./auth/index.js";
+
 // -- Crypto ------------------------------------------------------------------
 export type {
   MasterKey,

@@ -17,12 +17,12 @@
  */
 
 import type { DaemonConfig } from "./config.js";
-import type { EventBus } from "./event-bus/event-bus.js";
+import { EventBus } from "./event-bus/event-bus.js";
 import type { HookManager } from "./hooks/hook-manager.js";
-import type { AgentManager } from "./agents/agent-manager.js";
-import type { SessionManager } from "./sessions/session-manager.js";
-import type { HttpServer } from "./server/http-server.js";
-import type { EventStore } from "./store/event-store.js";
+import { AgentManager } from "./agents/agent-manager.js";
+import { SessionManager } from "./sessions/session-manager.js";
+import { HttpServer } from "./server/http-server.js";
+import { EventStore } from "./store/event-store.js";
 
 /**
  * The AgentContext daemon — core of the Saqr platform.
@@ -91,9 +91,29 @@ export class Daemon {
       throw new Error("Daemon is already running");
     }
 
-    // TODO: Initialize subsystems in dependency order
-    // TODO: Wire up event routing between subsystems
-    // TODO: Start accepting connections
+    // 1. EventBus (no dependencies)
+    this.eventBus = new EventBus();
+
+    // 2. EventStore (needs config.eventStore)
+    this.eventStore = new EventStore(this.config.eventStore.eventsDir);
+
+    // 3. SessionManager (needs EventBus)
+    this.sessionManager = new SessionManager(this.eventBus);
+
+    // 4. AgentManager (needs EventBus)
+    this.agentManager = new AgentManager(this.eventBus);
+
+    // 5. HookManager — skip for now (not needed for minimal daemon)
+
+    // 6. HttpServer (needs all managers for API routing)
+    this.httpServer = new HttpServer({
+      config: this.config,
+      eventBus: this.eventBus,
+      agentManager: this.agentManager,
+      sessionManager: this.sessionManager,
+      eventStore: this.eventStore,
+    });
+    await this.httpServer.start();
 
     this.running = true;
   }
@@ -120,9 +140,13 @@ export class Daemon {
       throw new Error("Daemon is not running");
     }
 
-    // TODO: Shut down subsystems in reverse dependency order
-    // TODO: Wait for in-flight operations to complete (with timeout)
-    // TODO: Clean up resources
+    // Shutdown in reverse dependency order
+    if (this.httpServer) {
+      await this.httpServer.stop();
+    }
+
+    // AgentManager, HookManager, SessionManager, EventStore —
+    // no async teardown needed yet (in-memory only)
 
     this.running = false;
     this.httpServer = null;
