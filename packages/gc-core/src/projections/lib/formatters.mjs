@@ -56,7 +56,7 @@ export function renderMarkdownTable(headers, rows) {
   lines.push('| ' + headers.join(' | ') + ' |');
   lines.push('|' + headers.map(() => '---').join('|') + '|');
   for (const row of rows) {
-    lines.push('| ' + row.map(cell => String(cell).replace(/\|/g, '\\|')).join(' | ') + ' |');
+    lines.push('| ' + row.map(cell => String(cell).replace(/[\|\\]/g, '\\$&').replace(/[\r\n]+/g, ' ')).join(' | ') + ' |');
   }
   return lines.join('\n');
 }

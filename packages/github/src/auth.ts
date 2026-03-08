@@ -26,11 +26,8 @@ import type {
  * Create a base64url-encoded string from a buffer.
  */
 function base64url(buffer: Buffer): string {
-  return buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const b64 = buffer.toString("base64url");
+  return b64;
 }
 
 /**

@@ -1,0 +1,13 @@
+{
+  "name": "saqr-web",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./dist"
+  },
+  // "routes": [{ "pattern": "app.saqr.dev", "custom_domain": true }],
+  "env": {
+    "preview": {
+      "name": "saqr-web-preview"
+    }
+  }
+}
