@@ -13,6 +13,8 @@
  * - Memory-safe: subscriptions are cleaned up via returned unsubscribe functions
  */
 
+import { getLogger } from "../logger.js";
+
 /**
  * Unified event envelope as defined in Story 03.
  * This is the standard event format flowing through the bus.
@@ -114,7 +116,7 @@ export class EventBus {
           this.errorCount++;
           // Log but do not re-throw: one bad subscriber must not
           // prevent delivery to remaining subscribers.
-          console.error(`[event-bus] subscriber error:`, err);
+          getLogger().error("event-bus", "subscriber error:", err);
         }
       }
     }

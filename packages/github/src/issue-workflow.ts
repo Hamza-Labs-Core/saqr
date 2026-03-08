@@ -118,8 +118,8 @@ export class IssueWorkflow {
       mentionedFiles.push(fileMatch[1].trim());
     }
 
-    // Also find backtick-quoted file paths
-    const backtickPattern = /`([^`]*\/[^`]+)`/g;
+    // Also find backtick-quoted file paths (e.g. `src/foo/bar.ts`)
+    const backtickPattern = /`([^`/]*\/[^`]+)`/g;
     let backtickMatch;
     while ((backtickMatch = backtickPattern.exec(body)) !== null) {
       const path = backtickMatch[1].trim();

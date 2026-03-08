@@ -24,5 +24,6 @@
   },
   "engines": {
     "node": ">=22.0.0"
-  }
+  },
+  "author": "Hamza Labs <hello@hamza.dev> (https://hamza.dev)"
 }

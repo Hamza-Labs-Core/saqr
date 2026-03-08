@@ -1,0 +1,260 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 13px;
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #2a2a4a;
+  background: #16162a;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  color: #aaa;
+}
+
+.tab.active {
+  color: #7c83ff;
+  border-bottom-color: #7c83ff;
+}
+
+/* Tab Content */
+.tab-content {
+  display: none;
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.tab-content.active {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Status Card */
+.status-card {
+  background: #22223a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.status-row:last-child {
+  border-bottom: none;
+}
+
+.label {
+  color: #999;
+  font-size: 12px;
+}
+
+.value {
+  color: #ccc;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.indicator {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.indicator.running {
+  background: #1a3d1a;
+  color: #4ade80;
+}
+
+.indicator.stopped {
+  background: #3d1a1a;
+  color: #f87171;
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #7c83ff;
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #6b72e8;
+}
+
+.btn-danger {
+  background: #3d1a1a;
+  color: #f87171;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #4d2020;
+}
+
+/* Login Card */
+.login-card {
+  background: #22223a;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+}
+
+.login-message {
+  color: #999;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.login-email {
+  color: #7c83ff;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.user-code {
+  font-family: "SF Mono", Monaco, monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: #7c83ff;
+  margin: 16px 0;
+}
+
+.btn-login {
+  width: 100%;
+  padding: 12px;
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.btn-login:hover {
+  background: #6b72e8;
+}
+
+.btn-logout {
+  width: 100%;
+  padding: 10px;
+  background: #3d1a1a;
+  color: #f87171;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 12px;
+}
+
+/* Agents List */
+.agents-list {
+  flex: 1;
+}
+
+.empty-state {
+  text-align: center;
+  color: #666;
+  padding: 40px 16px;
+  font-size: 13px;
+}
+
+.session-item {
+  background: #22223a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.session-provider {
+  font-weight: 600;
+  color: #7c83ff;
+  font-size: 12px;
+}
+
+.session-model {
+  color: #999;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.session-status {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-top: 4px;
+}
+
+.session-status.active {
+  background: #1a3d1a;
+  color: #4ade80;
+}
+
+.session-status.closed {
+  background: #2a2a4a;
+  color: #888;
+}

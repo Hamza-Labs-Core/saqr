@@ -12,6 +12,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./types/timeline": {
+      "types": "./src/types/timeline.ts",
+      "import": "./src/types/timeline.ts"
+    },
+    "./theme": {
+      "types": "./src/theme/index.ts",
+      "import": "./src/theme/index.ts"
+    },
+    "./normalization": {
+      "types": "./src/normalization/index.ts",
+      "import": "./src/normalization/index.ts"
     }
   },
   "files": [
@@ -27,11 +39,14 @@
   },
   "dependencies": {
     "@saqr/shared": "workspace:*",
-    "@saqr/daemon": "workspace:*"
+    "@saqr/daemon": "workspace:*",
+    "@saqr/sync-client": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
-  }
+  },
+  "author": "Hamza Labs <hello@hamza.dev> (https://hamza.dev)",
+  "license": "MIT"
 }

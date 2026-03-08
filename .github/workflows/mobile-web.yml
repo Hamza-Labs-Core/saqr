@@ -1,0 +1,36 @@
+name: Mobile - Web Deploy
+
+on:
+  push:
+    paths: ["packages/mobile/**"]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Export web build
+        run: cd packages/mobile && npx expo export --platform web
+
+      - name: Deploy to Cloudflare Pages
+        run: |
+          cd packages/mobile
+          npx wrangler pages deploy dist --project-name saqr-app
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
