@@ -243,6 +243,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_SYNC_SERVER: ${{ needs.deploy-servers-preview.outputs.sync_url }}
+          TAURI_BUNDLER_DMG_IGNORE_CI: true
         with:
           projectPath: packages/desktop
           tauriScript: npx tauri
