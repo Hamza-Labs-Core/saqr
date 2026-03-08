@@ -13,8 +13,8 @@ import { generateId, isValidEmail, isValidPassword, jsonResponse, errorResponse 
 // Password Hashing (PBKDF2-SHA256, 600,000 iterations via Web Crypto API)
 // ---------------------------------------------------------------------------
 
-/** Number of PBKDF2 iterations — OWASP recommendation for SHA-256 (2023+). */
-const PBKDF2_ITERATIONS = 600_000;
+/** Number of PBKDF2 iterations — Cloudflare Workers caps at 100,000. */
+const PBKDF2_ITERATIONS = 100_000;
 
 /** Derived key length in bits (256 bits = 32 bytes). */
 const DERIVED_KEY_BITS = 256;

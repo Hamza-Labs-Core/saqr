@@ -1,0 +1,36 @@
+name: Mobile - Tests
+
+on:
+  pull_request:
+    paths: ["packages/mobile/**"]
+  push:
+    paths: ["packages/mobile/**"]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace dependencies
+        run: pnpm --filter @saqr/shared build
+
+      - name: Run tests
+        run: pnpm --filter @saqr/mobile test
+
+      - name: Typecheck
+        run: pnpm --filter @saqr/mobile typecheck

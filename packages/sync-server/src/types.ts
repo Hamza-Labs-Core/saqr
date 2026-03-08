@@ -19,6 +19,8 @@ export interface Env {
   JWT_AUDIENCE: string;
   // CORS: comma-separated list of allowed origins (e.g. "https://app.saqr.dev,https://admin.saqr.dev")
   ALLOWED_ORIGINS: string;
+  // Website base URL for device-code verification links (e.g. "https://saqr.dev")
+  WEBSITE_URL?: string;
   // Tier limits (string values from wrangler.toml [vars])
   FREE_TIER_STORAGE_BYTES: string;
   PRO_TIER_STORAGE_BYTES: string;

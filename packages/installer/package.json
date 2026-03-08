@@ -1,0 +1,23 @@
+{
+  "name": "@saqr/installer",
+  "version": "0.1.0",
+  "description": "Standalone installer builders for Saqr server (daemon + CLI)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:sea": "node scripts/build-sea.js",
+    "build:macos": "bash scripts/build-macos.sh",
+    "build:windows": "bash scripts/build-windows.sh",
+    "build:linux": "bash scripts/build-linux.sh",
+    "build:all": "pnpm build:macos && pnpm build:windows && pnpm build:linux",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "rcedit": "^4.0.0",
+    "vitest": "^3.0.0"
+  },
+  "author": "Hamza Labs <hello@hamza.dev> (https://hamza.dev)",
+  "license": "MIT"
+}

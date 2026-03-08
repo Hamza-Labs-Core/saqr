@@ -21,7 +21,8 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@saqr/shared": "workspace:*"
+    "@saqr/shared": "workspace:*",
+    "@saqr/sync-client": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -31,5 +32,6 @@
   "files": [
     "dist"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "author": "Hamza Labs <hello@hamza.dev> (https://hamza.dev)"
 }

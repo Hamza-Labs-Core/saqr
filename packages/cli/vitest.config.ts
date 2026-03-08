@@ -5,6 +5,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@saqr/shared": path.resolve(__dirname, "../shared/src/index.ts"),
+      "@saqr/sync-client": path.resolve(__dirname, "../sync-client/src/index.ts"),
+      "@saqr/daemon": path.resolve(__dirname, "../daemon/src/index.ts"),
     },
   },
   test: {

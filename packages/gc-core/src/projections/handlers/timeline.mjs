@@ -60,7 +60,7 @@ function formatMarkdown(projection) {
   lines.push('|---|-----------|------|---------|');
   for (const e of projection.entries) {
     // Escape pipes in summary
-    const safeSummary = (e.summary || '').replace(/\|/g, '\\|');
+    const safeSummary = (e.summary || '').replace(/[\|\\]/g, '\\$&').replace(/[\r\n]+/g, ' ');
     lines.push(`| ${e.sequence} | ${e.timestamp} | ${e.event_type} | ${safeSummary} |`);
   }
   return lines.join('\n');

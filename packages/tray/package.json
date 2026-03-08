@@ -1,0 +1,19 @@
+{
+  "name": "@saqr/tray",
+  "version": "0.1.0",
+  "description": "SaqrNestUI — System tray app for managing the SaqrNest daemon",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  },
+  "author": "Hamza Labs <hello@hamza.dev> (https://hamza.dev)",
+  "license": "MIT"
+}
