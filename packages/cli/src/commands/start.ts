@@ -148,16 +148,23 @@ export async function runStart(args: ParsedArgs): Promise<void> {
   } else {
     const spin = spinner("Starting SaqrNest daemon...");
 
-    // Spawn self with --foreground in background
+    // Ensure log directory exists and open a log file for the spawned process stderr
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "/tmp";
+    const logDir = path.join(home, ".saqr", "logs");
+    fs.mkdirSync(logDir, { recursive: true });
+    const logFd = fs.openSync(path.join(logDir, "daemon.log"), "a");
+
+    // Spawn self with --foreground in background, stderr → log file
     const child = spawn(
       process.execPath,
       [...(process.execArgv || []), ...getEntryArgs(), "start", "--foreground", "--port", String(port), "--log-level", logLevel],
       {
         detached: true,
-        stdio: "ignore",
+        stdio: ["ignore", logFd, logFd],
         env: process.env,
       },
     );
+    fs.closeSync(logFd);
     child.unref();
 
     if (!child.pid) {

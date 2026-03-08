@@ -3,7 +3,7 @@
  *
  * Covers: T-1 through T-6 from Story 04 testing plan.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { EventBus } from "../event-bus/event-bus.js";
 import type { EventEnvelope, EventHandler } from "../event-bus/event-bus.js";
 
@@ -136,7 +136,6 @@ describe("EventBus", () => {
 
   it("should catch errors from subscribers without affecting others", () => {
     const received: EventEnvelope[] = [];
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     bus.subscribe(null, () => {
       throw new Error("subscriber boom");
@@ -146,8 +145,7 @@ describe("EventBus", () => {
     bus.publish(makeEvent());
 
     expect(received).toHaveLength(1);
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    expect(bus.totalErrors).toBe(1);
   });
 
   it("should track subscriber count correctly", () => {

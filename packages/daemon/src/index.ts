@@ -20,6 +20,7 @@
 // Core
 export { Daemon } from "./daemon.js";
 export { type DaemonConfig, loadConfig, getDefaultConfig } from "./config.js";
+export { Logger, initLogger, getLogger, type LogLevel, type LoggerOptions } from "./logger.js";
 
 // Event Bus
 export { EventBus } from "./event-bus/index.js";
