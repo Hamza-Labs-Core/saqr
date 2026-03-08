@@ -103,34 +103,28 @@ async function main() {
     while (versionParts.length < 4) versionParts.push("0");
     const fileVersion = versionParts.slice(0, 4).join(".");
 
+    // Call rcedit-x64.exe directly via run() instead of the npm module.
+    // The npm module spawns a child process that isn't killed on timeout,
+    // leaving a file lock on the binary that blocks subsequent makensis.
+    // execFileSync with timeout option cleanly kills the process.
+    const rceditBin = resolve(ROOT, "node_modules/rcedit/bin/rcedit-x64.exe");
+    const iconPath = resolve(MONO_ROOT, "packages/desktop/src-tauri/icons/icon.ico");
     try {
-      const rceditMod = await import("rcedit");
-      const rcedit = rceditMod.default ?? rceditMod;
-      const opts = {
-        "file-version": fileVersion,
-        "product-version": fileVersion,
-        "version-string": {
-          CompanyName: "Hamza Labs",
-          FileDescription: "SaqrNest — Agent Management Daemon & CLI",
-          ProductName: "SaqrNest",
-          InternalName: "SaqrNest",
-          OriginalFilename: "SaqrNest.exe",
-          LegalCopyright: `Copyright \u00A9 2024-${new Date().getFullYear()} Hamza Labs. All rights reserved.`,
-        },
-        // Note: icon embedding is skipped — rewriting the icon resource section
-        // on an 80MB SEA binary causes rcedit to hang for 17+ minutes on CI.
-        // The NSIS installer stamps its own icon separately.
-      };
-      // rcedit v4 is async-only. Add a timeout to prevent CI hangs.
-      const RCEDIT_TIMEOUT_MS = 60_000;
-      const timeout = new Promise((_, rej) =>
-        setTimeout(() => rej(new Error(`rcedit timed out after ${RCEDIT_TIMEOUT_MS / 1000}s`)), RCEDIT_TIMEOUT_MS),
-      );
-      await Promise.race([rcedit(outputBin, opts), timeout]);
+      run(rceditBin, [
+        outputBin,
+        "--set-file-version", fileVersion,
+        "--set-product-version", fileVersion,
+        "--set-icon", iconPath,
+        "--set-version-string", "CompanyName", "Hamza Labs",
+        "--set-version-string", "FileDescription", "SaqrNest — Agent Management Daemon & CLI",
+        "--set-version-string", "ProductName", "SaqrNest",
+        "--set-version-string", "InternalName", "SaqrNest",
+        "--set-version-string", "OriginalFilename", "SaqrNest.exe",
+        "--set-version-string", "LegalCopyright", `Copyright \u00A9 2024-${new Date().getFullYear()} Hamza Labs. All rights reserved.`,
+      ], { timeout: 120_000 });
       console.log("PE version info stamped.");
     } catch (err) {
       console.warn("Warning: could not stamp PE version info:", err.message);
-      console.warn("Install rcedit (npm i -D rcedit) and wine (on Linux/macOS) to embed .exe metadata.");
     }
   }
 

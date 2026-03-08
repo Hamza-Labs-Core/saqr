@@ -128,17 +128,19 @@ describe("build-sea.js", () => {
     expect(script).not.toContain("npx.cmd");
   });
 
-  it("rcedit PE stamping has a timeout to prevent CI hangs", () => {
+  it("rcedit PE stamping uses direct CLI with timeout (not npm module)", () => {
     const { readFileSync } = require("node:fs");
     const { resolve } = require("node:path");
     const script = readFileSync(
       resolve(__dirname, "../scripts/build-sea.js"),
       "utf-8",
     );
-    // rcedit on an 80MB SEA binary can hang for 17+ minutes on CI
-    // (especially with icon replacement). A timeout prevents CI jobs from
-    // being killed by the runner's global timeout.
-    expect(script).toMatch(/timeout|AbortController|setTimeout/);
+    // The rcedit npm module spawns a child process that isn't killed on
+    // timeout, leaving a file lock on the binary that blocks makensis.
+    // Direct CLI via run() with execFileSync timeout cleanly kills the process.
+    expect(script).toContain("rcedit-x64.exe");
+    expect(script).toContain("timeout:");
+    expect(script).not.toMatch(/await import\(["']rcedit["']\)/);
   });
 });
 
