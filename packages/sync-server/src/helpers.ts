@@ -229,8 +229,14 @@ export function withSecurityHeaders(response: Response): Response {
 /** Validate email format (simplified RFC 5322) */
 export function isValidEmail(email: string): boolean {
   if (!email || typeof email !== 'string') return false;
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return re.test(email) && email.length <= 254;
+  if (email.length > 254) return false;
+  const atIndex = email.indexOf('@');
+  if (atIndex < 1 || atIndex === email.length - 1) return false;
+  const local = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+  if (/\s/.test(local) || /\s/.test(domain)) return false;
+  const dotIndex = domain.indexOf('.');
+  return dotIndex > 0 && dotIndex < domain.length - 1;
 }
 
 /** Validate password requirements */

@@ -1,0 +1,858 @@
+name: PR Deploy
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-deploy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    name: Version (prerelease)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: version
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+  # ─── Mobile Android Preview ──────────────────────────────────────────
+
+  build-mobile-android:
+    name: Build Android APK (preview)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+      - name: Prebuild Android
+        working-directory: packages/mobile
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build debug APK
+        working-directory: packages/mobile/android
+        run: ./gradlew assembleDebug
+
+      - name: Rename APK
+        run: |
+          APK_PATH=$(find packages/mobile/android/app/build/outputs/apk/debug -name "*.apk" | head -1)
+          cp "$APK_PATH" "Saqr-${{ needs.version.outputs.version }}-android.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-preview
+          path: "Saqr-${{ needs.version.outputs.version }}-android.apk"
+          retention-days: 5
+
+  # ─── Mobile iOS Simulator Preview ────────────────────────────────────
+
+  build-mobile-ios:
+    name: Build iOS Simulator (preview)
+    needs: version
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+      - name: Prebuild iOS
+        working-directory: packages/mobile
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Build for simulator
+        working-directory: packages/mobile/ios
+        run: |
+          xcodebuild -workspace Saqr.xcworkspace -scheme Saqr \
+            -sdk iphonesimulator -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+
+      - name: Package iOS .ipa
+        run: |
+          APP_PATH=$(find packages/mobile/ios/build/Build/Products/Release-iphonesimulator -name "*.app" -maxdepth 1 | head -1)
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          cd Payload && zip -r ../Saqr.ipa . && cd ..
+          rm -rf Payload
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-preview
+          path: Saqr.ipa
+          retention-days: 5
+
+  # ─── Mobile Build Comment ────────────────────────────────────────────
+
+  comment-builds:
+    name: Comment Build Status
+    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, build-nest-macos, build-nest-windows, build-nest-linux]
+    if: ${{ always() && needs.version.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Upsert build status comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- saqr-build-preview -->';
+            const version = '${{ needs.version.outputs.version }}';
+            const icon = (s) => s === 'success' ? '✅' : s === 'skipped' ? '⏭️' : '❌';
+
+            const rows = [
+              ['macOS (arm64)', '${{ needs.build-desktop-macos.result }}', '.dmg', '${{ needs.build-nest-macos.result }}', '.pkg'],
+              ['Windows (x64)', '${{ needs.build-desktop-windows.result }}', '.exe', '${{ needs.build-nest-windows.result }}', '.exe'],
+              ['Linux (amd64)', '${{ needs.build-desktop-linux.result }}', '.AppImage .deb', '${{ needs.build-nest-linux.result }}', '.deb'],
+              ['Android', '${{ needs.build-mobile-android.result }}', '.apk', 'n/a', '—'],
+              ['iOS', '${{ needs.build-mobile-ios.result }}', '.ipa', 'n/a', '—'],
+            ];
+
+            const tableRows = rows.map(([platform, clientStatus, clientExt, nestStatus, nestExt]) => {
+              const client = `${icon(clientStatus)} ${clientExt}`;
+              const nest = nestStatus === 'n/a' ? '—' : `${icon(nestStatus)} ${nestExt}`;
+              return `| ${platform} | ${client} | ${nest} |`;
+            }).join('\n');
+
+            const body = `${marker}\n## Preview Builds\n\n` +
+              `**Version:** \`${version}\`\n\n` +
+              `| Platform | Saqr (client) | SaqrNest (server) |\n` +
+              `|----------|---------------|-------------------|\n` +
+              `${tableRows}\n\n` +
+              `Download from the [prerelease](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/releases/tag/v${version}) or [Actions run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
+  # ─── Desktop Builds (Tauri) ─────────────────────────────────────────
+
+  build-desktop-macos:
+    name: Build Desktop (macOS preview)
+    needs: [version, deploy-servers-preview]
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+      - name: Build dashboard frontend
+        run: pnpm --filter dashboard run build
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SYNC_SERVER: ${{ needs.deploy-servers-preview.outputs.sync_url }}
+        with:
+          projectPath: packages/desktop
+          tauriScript: npx tauri
+          args: --target aarch64-apple-darwin
+          tagName: ""
+          releaseName: ""
+
+      - name: Rename macOS client
+        run: |
+          DMG=$(find packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          cp "$DMG" "Saqr-Installer-${{ needs.version.outputs.version }}-macos-universal.dmg"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-preview
+          path: "Saqr-Installer-${{ needs.version.outputs.version }}-macos-universal.dmg"
+          retention-days: 5
+
+  build-desktop-windows:
+    name: Build Desktop (Windows preview)
+    needs: [version, deploy-servers-preview]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        shell: bash
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+      - name: Build dashboard frontend
+        run: pnpm --filter dashboard run build
+
+      - name: Build Tauri app (NSIS only — MSI rejects pre-release versions)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SYNC_SERVER: ${{ needs.deploy-servers-preview.outputs.sync_url }}
+        with:
+          projectPath: packages/desktop
+          tauriScript: npx tauri
+          args: --bundles nsis
+          tagName: ""
+          releaseName: ""
+
+      - name: Rename Windows client
+        shell: bash
+        run: |
+          EXE=$(find packages/desktop/src-tauri/target/release/bundle/nsis -name "*.exe" | head -1)
+          cp "$EXE" "Saqr-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-preview
+          path: "Saqr-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
+          retention-days: 5
+
+  build-desktop-linux:
+    name: Build Desktop (Linux preview)
+    needs: [version, deploy-servers-preview]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+      - name: Build dashboard frontend
+        run: pnpm --filter dashboard run build
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SYNC_SERVER: ${{ needs.deploy-servers-preview.outputs.sync_url }}
+        with:
+          projectPath: packages/desktop
+          tauriScript: npx tauri
+          tagName: ""
+          releaseName: ""
+
+      - name: Rename Linux client
+        run: |
+          cp packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage "Saqr-${{ needs.version.outputs.version }}-linux-x86_64.AppImage"
+          cp packages/desktop/src-tauri/target/release/bundle/deb/*.deb "Saqr-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-preview
+          path: |
+            Saqr-${{ needs.version.outputs.version }}-linux-x86_64.AppImage
+            Saqr-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb
+          retention-days: 5
+
+  # ─── SaqrNest Server Builds ────────────────────────────────────────
+
+  build-nest-macos:
+    name: Build SaqrNest (macOS preview)
+    needs: version
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS .pkg
+        working-directory: packages/installer
+        run: bash scripts/build-macos.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to versioned .pkg
+        run: |
+          PKG=$(find packages/installer/dist -name "*.pkg" | head -1)
+          cp "$PKG" "SaqrNest-Installer-${{ needs.version.outputs.version }}-macos-universal.pkg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-macos-preview
+          path: "SaqrNest-Installer-${{ needs.version.outputs.version }}-macos-universal.pkg"
+          retention-days: 5
+
+  build-nest-windows:
+    name: Build SaqrNest (Windows preview)
+    needs: version
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install NSIS
+        shell: bash
+        run: |
+          choco install nsis -y
+          echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SEA binary
+        working-directory: packages/installer
+        run: node scripts/build-sea.js
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Build NSIS installer
+        shell: bash
+        run: bash packages/installer/scripts/build-windows.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to versioned .exe
+        shell: bash
+        run: |
+          EXE=$(find packages/installer/dist -name "SaqrNest-Installer-*.exe" | head -1)
+          if [[ -n "$EXE" ]]; then
+            cp "$EXE" "SaqrNest-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
+          else
+            cp packages/installer/dist/SaqrNest.exe "SaqrNest-Installer-${{ needs.version.outputs.version }}-windows-x64.exe" 2>/dev/null || true
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-windows-preview
+          path: "SaqrNest-Installer-${{ needs.version.outputs.version }}-windows-x64.exe"
+          retention-days: 5
+
+  build-nest-linux:
+    name: Build SaqrNest (Linux preview)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux .deb
+        working-directory: packages/installer
+        run: bash scripts/build-linux.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Rename to versioned .deb
+        run: |
+          DEB=$(find packages/installer/dist -name "*.deb" | head -1)
+          cp "$DEB" "SaqrNest-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nest-linux-preview
+          path: "SaqrNest-Installer-${{ needs.version.outputs.version }}-linux-amd64.deb"
+          retention-days: 5
+
+  # ─── Server Preview Deploy ──────────────────────────────────────────
+
+  deploy-servers-preview:
+    name: Deploy Servers (preview)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      sync_url: ${{ steps.deploy-sync.outputs.url }}
+      admin_url: ${{ steps.deploy-admin.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy sync-server (preview)
+        id: deploy-sync
+        working-directory: packages/sync-server
+        run: |
+          set +e
+          OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
+          if [ -z "$URL" ]; then echo "::error::Failed to extract sync-server preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy admin-server (preview)
+        id: deploy-admin
+        working-directory: packages/admin-server
+        run: |
+          set +e
+          OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
+          if [ -z "$URL" ]; then echo "::error::Failed to extract admin-server preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set preview secrets
+        run: |
+          if [ -z "$JWT_SECRET" ]; then
+            echo "::warning::JWT_SECRET_PREVIEW secret not set — preview auth will not work"
+            exit 0
+          fi
+          jq -n --arg s "$JWT_SECRET" '{"JWT_SECRET": $s}' | npx wrangler secret bulk --name saqr-sync-preview
+          jq -n --arg s "$JWT_SECRET" '{"JWT_SECRET": $s}' | npx wrangler secret bulk --name saqr-admin-preview
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET_PREVIEW }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upsert server preview comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- saqr-server-preview -->';
+            const version = '${{ needs.version.outputs.version }}';
+            const syncUrl = '${{ steps.deploy-sync.outputs.url }}';
+            const adminUrl = '${{ steps.deploy-admin.outputs.url }}';
+            const body = `${marker}\n## Server Preview Deploy\n\n` +
+              `**Version:** \`${version}\`\n\n` +
+              `| Service | URL |\n` +
+              `|---------|-----|\n` +
+              `| sync-server | ${syncUrl} |\n` +
+              `| admin-server | ${adminUrl} |`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
+  # ─── E2E Tests Against Preview ─────────────────────────────────────
+
+  e2e-preview:
+    name: E2E Tests (preview)
+    needs: [deploy-servers-preview, deploy-website-preview]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run E2E tests against preview
+        run: pnpm --filter @saqr/e2e run test
+        env:
+          E2E_SYNC_URL: ${{ needs.deploy-servers-preview.outputs.sync_url }}
+          E2E_ADMIN_URL: ${{ needs.deploy-servers-preview.outputs.admin_url }}
+          E2E_WEBSITE_URL: ${{ needs.deploy-website-preview.outputs.url }}
+
+  # ─── Web Client Preview Deploy (Expo Web → Cloudflare Workers) ─────
+
+  deploy-web-preview:
+    name: Deploy Web (preview)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply version
+        run: bash scripts/version.sh --pr ${{ github.event.pull_request.number }}
+
+      - name: Build workspace dependencies
+        run: pnpm --filter @saqr/shared build
+
+      - name: Export web build
+        working-directory: packages/mobile
+        run: npx expo export --platform web
+
+      - name: Deploy to Cloudflare Workers (preview)
+        id: deploy
+        working-directory: packages/mobile
+        run: |
+          set +e
+          OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
+          if [ -z "$URL" ]; then echo "::error::Failed to extract web preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upsert web preview comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- saqr-web-preview -->';
+            const version = '${{ needs.version.outputs.version }}';
+            const webUrl = '${{ steps.deploy.outputs.url }}';
+            const body = `${marker}\n## Web Preview\n\n` +
+              `**Version:** \`${version}\`\n\n` +
+              `${webUrl}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
+  # ─── Website Preview Deploy ────────────────────────────────────────
+
+  deploy-website-preview:
+    name: Deploy Website (preview)
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build website
+        working-directory: packages/website
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Workers (preview)
+        id: deploy
+        working-directory: packages/website
+        run: |
+          set +e
+          OUTPUT=$(npx wrangler deploy --env preview 2>&1)
+          EXIT_CODE=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then exit $EXIT_CODE; fi
+          URL=$(echo "$OUTPUT" | grep -oP '^\s+\Khttps://[^\s]+\.workers\.dev' | head -1)
+          if [ -z "$URL" ]; then echo "::error::Failed to extract website preview URL from wrangler output"; exit 1; fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ─── Prerelease ─────────────────────────────────────────────────────
+
+  prerelease:
+    name: Create Prerelease
+    needs: [version, build-mobile-android, build-mobile-ios, build-desktop-macos, build-desktop-windows, build-desktop-linux, build-nest-macos, build-nest-windows, build-nest-linux, deploy-servers-preview, e2e-preview, deploy-web-preview, deploy-website-preview]
+    if: ${{ always() && needs.version.result == 'success' && !contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create prerelease tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ needs.version.outputs.version }}"
+          git push origin "v${{ needs.version.outputs.version }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create prerelease with assets
+        run: |
+          VERSION="v${{ needs.version.outputs.version }}"
+
+          # Collect all asset files
+          ASSETS=()
+          if [[ -d release-assets ]]; then
+            while IFS= read -r file; do
+              ASSETS+=("$file")
+            done < <(find release-assets -type f \( \
+              -name "Saqr-Installer-*.dmg" -o \
+              -name "Saqr-Installer-*.exe" -o \
+              -name "Saqr-*-linux-*.AppImage" -o \
+              -name "Saqr-Installer-*-linux-*.deb" -o \
+              -name "Saqr-*-android.apk" -o \
+              -name "Saqr.ipa" -o \
+              -name "SaqrNest-Installer-*.pkg" -o \
+              -name "SaqrNest-Installer-*.exe" -o \
+              -name "SaqrNest-Installer-*.deb" \
+            \))
+          fi
+
+          echo "Assets found: ${#ASSETS[@]}"
+          printf '  %s\n' "${ASSETS[@]}"
+
+          CMD=(gh release create "$VERSION" --prerelease --title "$VERSION" --generate-notes)
+          for asset in "${ASSETS[@]}"; do
+            CMD+=("$asset")
+          done
+
+          "${CMD[@]}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup old prereleases
+        run: bash scripts/cleanup-prereleases.sh --keep 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

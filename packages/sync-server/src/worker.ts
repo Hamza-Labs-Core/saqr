@@ -17,6 +17,12 @@
 import type { Env, AuthContext } from './types.js';
 import { verifyToken, JWTError } from './auth/jwt.js';
 import { handleRegister, handleLogin } from './auth/handlers.js';
+import {
+  handleDeviceCode,
+  handleDevicePoll,
+  handleDeviceApprove,
+  handleRefreshToken,
+} from './auth/device-code.js';
 import { checkRateLimit } from './middleware/rate-limiter.js';
 import { handleGetCurated, handleGetPopular } from './codeguard/public-handlers.js';
 import { handleTelemetryPush } from './codeguard/telemetry-handlers.js';
@@ -40,7 +46,8 @@ function requiresAuth(pathname: string): boolean {
     pathname.startsWith('/api/sync/') ||
     pathname.startsWith('/api/account') ||
     pathname.startsWith('/api/machines') ||
-    pathname === '/api/codeguard/telemetry'
+    pathname === '/api/codeguard/telemetry' ||
+    pathname === '/api/auth/device-approve'
   );
 }
 
@@ -153,77 +160,106 @@ export default {
       return withSecurityHeaders(withCorsHeaders(response, origin, env));
     };
 
-    // --- Health check (no auth) ---
-    if (url.pathname === '/api/health') {
-      return respond(
-        jsonResponse(200, {
-          status: 'ok',
-          timestamp: new Date().toISOString(),
-        }),
-      );
-    }
-
-    // --- Public auth endpoints (no middleware chain) ---
-    if (url.pathname === '/api/auth/register' && request.method === 'POST') {
-      return respond(await handleRegister(request, env));
-    }
-
-    if (url.pathname === '/api/auth/login' && request.method === 'POST') {
-      return respond(await handleLogin(request, env));
-    }
-
-    // --- Public codeguard endpoints (no auth) ---
-    if (url.pathname === '/api/codeguard/curated' && request.method === 'GET') {
-      return respond(await handleGetCurated(env));
-    }
-
-    if (url.pathname === '/api/codeguard/popular' && request.method === 'GET') {
-      return respond(await handleGetPopular(env, url));
-    }
-
-    // --- Block internal endpoints from external access ---
-    if (url.pathname.startsWith('/_internal/')) {
-      return respond(errorResponse(404, 'not_found', 'Not found'));
-    }
-
-    // --- Authenticated endpoints ---
-    if (!requiresAuth(url.pathname) && !isPublicCodeguardRoute(url.pathname)) {
-      return respond(errorResponse(404, 'not_found', 'Not found'));
-    }
-
-    // Check body size for POST/PUT/PATCH (handles both Content-Length and chunked)
-    if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
-      const sizeError = await checkBodySize(request, MAX_BODY_SIZE);
-      if (sizeError) {
-        return respond(sizeError);
-      }
-    }
-
-    // JWT authentication
-    const authResult = await authenticateRequest(request, env);
-    if ('error' in authResult) {
-      return respond(authResult.error);
-    }
-    const { authCtx } = authResult;
-
-    // Rate limiting
-    const rateLimitResult = await checkRateLimit(env, authCtx);
-    if (rateLimitResult) {
-      return respond(rateLimitResult);
-    }
-
-    // --- Codeguard telemetry (authed but not routed to DO) ---
-    if (url.pathname === '/api/codeguard/telemetry' && request.method === 'POST') {
-      return respond(await handleTelemetryPush(request, env, authCtx));
-    }
-
-    // Route to Durable Object
     try {
-      const doResponse = await routeToDO(request, env, authCtx);
-      return respond(doResponse);
+      return await handleRoute(request, env, url, respond);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal server error';
       return respond(errorResponse(500, 'internal_error', message));
     }
   },
 };
+
+async function handleRoute(
+  request: Request,
+  env: Env,
+  url: URL,
+  respond: (r: Response) => Response,
+): Promise<Response> {
+  // --- Health check (no auth) ---
+  if (url.pathname === '/api/health') {
+    return respond(
+      jsonResponse(200, {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  }
+
+  // --- Public auth endpoints (no middleware chain) ---
+  if (url.pathname === '/api/auth/register' && request.method === 'POST') {
+    return respond(await handleRegister(request, env));
+  }
+
+  if (url.pathname === '/api/auth/login' && request.method === 'POST') {
+    return respond(await handleLogin(request, env));
+  }
+
+  // --- Device code flow (public endpoints) ---
+  if (url.pathname === '/api/auth/device-code' && request.method === 'POST') {
+    return respond(await handleDeviceCode(request, env));
+  }
+
+  if (url.pathname === '/api/auth/device-poll' && request.method === 'POST') {
+    return respond(await handleDevicePoll(request, env));
+  }
+
+  if (url.pathname === '/api/auth/refresh' && request.method === 'POST') {
+    return respond(await handleRefreshToken(request, env));
+  }
+
+  // --- Public codeguard endpoints (no auth) ---
+  if (url.pathname === '/api/codeguard/curated' && request.method === 'GET') {
+    return respond(await handleGetCurated(env));
+  }
+
+  if (url.pathname === '/api/codeguard/popular' && request.method === 'GET') {
+    return respond(await handleGetPopular(env, url));
+  }
+
+  // --- Block internal endpoints from external access ---
+  if (url.pathname.startsWith('/_internal/')) {
+    return respond(errorResponse(404, 'not_found', 'Not found'));
+  }
+
+  // --- Authenticated endpoints ---
+  if (!requiresAuth(url.pathname) && !isPublicCodeguardRoute(url.pathname)) {
+    return respond(errorResponse(404, 'not_found', 'Not found'));
+  }
+
+  // Check body size for POST/PUT/PATCH (handles both Content-Length and chunked)
+  if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
+    const sizeError = await checkBodySize(request, MAX_BODY_SIZE);
+    if (sizeError) {
+      return respond(sizeError);
+    }
+  }
+
+  // JWT authentication
+  const authResult = await authenticateRequest(request, env);
+  if ('error' in authResult) {
+    return respond(authResult.error);
+  }
+  const { authCtx } = authResult;
+
+  // Rate limiting
+  const rateLimitResult = await checkRateLimit(env, authCtx);
+  if (rateLimitResult) {
+    return respond(rateLimitResult);
+  }
+
+  // --- Device code approval (authed, not routed to DO) ---
+  if (url.pathname === '/api/auth/device-approve' && request.method === 'POST') {
+    return respond(
+      await handleDeviceApprove(request, env, authCtx.userId, authCtx.email, authCtx.tier, 'user'),
+    );
+  }
+
+  // --- Codeguard telemetry (authed but not routed to DO) ---
+  if (url.pathname === '/api/codeguard/telemetry' && request.method === 'POST') {
+    return respond(await handleTelemetryPush(request, env, authCtx));
+  }
+
+  // Route to Durable Object
+  const doResponse = await routeToDO(request, env, authCtx);
+  return respond(doResponse);
+}

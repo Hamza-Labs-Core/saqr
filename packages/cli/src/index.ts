@@ -39,3 +39,49 @@ export {
 } from "./utils/output.js";
 
 export type { TableColumn, Spinner } from "./utils/output.js";
+
+// Theme
+export type { AppTheme, ThemeColors, SyntaxTheme, ThemeSpacing, ThemeTypography } from "./theme/index.js";
+export { DARK_THEME, LIGHT_THEME, DARK_SYNTAX_THEME, LIGHT_SYNTAX_THEME } from "./theme/index.js";
+
+// Timeline Types
+export type {
+  TimelineItemSource,
+  TimelineItemBase,
+  UserMessage,
+  AssistantMessage,
+  ThinkingBlock,
+  ToolCallBase,
+  ToolCallRead,
+  ToolCallEdit,
+  ToolCallWrite,
+  ToolCallBash,
+  ToolCallGlob,
+  ToolCallGrep,
+  ToolCallWebFetch,
+  ToolCallTask,
+  ToolCall,
+  PermissionRequest,
+  PermissionResolved,
+  ErrorItem,
+  SystemNotificationCategory,
+  SystemNotification,
+  CompactNotification,
+  UsageUpdate,
+  TimelineItem,
+  TimelineItemType,
+} from "./types/timeline.js";
+
+export {
+  createTimelineItemBase,
+  isUserMessage,
+  isAssistantMessage,
+  isThinkingBlock,
+  isToolCall,
+  isPermissionRequest,
+  isPermissionResolved,
+  isErrorItem,
+  isSystemNotification,
+  isCompactNotification,
+  isUsageUpdate,
+} from "./types/timeline.js";

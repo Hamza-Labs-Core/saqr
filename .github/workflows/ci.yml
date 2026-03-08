@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,6 +18,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 15
 
     steps:
@@ -59,9 +65,20 @@ jobs:
       - name: Run tests — desktop
         run: pnpm --filter desktop run test
 
+      - name: Run tests — terminal-ui
+        run: pnpm --filter terminal-ui run test
+
+      - name: Run tests — website
+        run: pnpm --filter website run test
+
+      - name: Run tests — installer
+        run: pnpm --filter installer run test
+
   gc-core:
     name: gc-core (bash)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
 
     steps:
